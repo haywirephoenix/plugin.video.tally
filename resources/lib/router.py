@@ -469,6 +469,10 @@ class Router:
         from . import shows
         shows.mark_show_watched(self)
 
+    def import_history(self):
+        from . import import_ui
+        import_ui.run(self)
+
     def settings(self):
         common.addon().openSettings()
 

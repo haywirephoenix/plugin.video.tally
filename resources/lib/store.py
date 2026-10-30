@@ -78,8 +78,21 @@ MIGRATIONS = [
         refreshed_at REAL NOT NULL DEFAULT 0
     );
     """,
+    # 1 -> 2
+    """
+    CREATE TABLE imports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        importer TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT '',
+        imported_at REAL NOT NULL,
+        summary TEXT NOT NULL DEFAULT '{}'
+    );
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
+
+# An imported play this close to one already stored is the same play (an import run twice).
+SAME_PLAY = 60
 
 
 def _key(season, episode):
@@ -416,6 +429,98 @@ class Store:
             "SELECT tmdb, next_season, next_episode FROM media WHERE kind = 'tv' AND status = ? "
             "AND next_season IS NOT NULL AND next_title = '' ORDER BY activity_at DESC LIMIT ?",
             (STATUS_IN_PROGRESS, limit))]
+
+    # -- imports ----------------------------------------------------------------------
+
+    def import_history(self, titles, plays, progress, now=None):
+        """Merge imported history in one transaction; running the same import twice adds nothing.
+
+        titles: dicts of kind ("movie"/"tv"), tmdb, meta, status (or None), added_at, activity_at.
+        A title's status only moves forward (Planning, In progress, Completed); a show's then
+        follows from its plays. plays: (kind, tmdb, season, episode, watched_at or None).
+        progress: (kind, tmdb, season, episode, position, duration, updated_at), kept only when
+        newer than the stored resume point and not followed by a play.
+        """
+        now = now or time.time()
+        counts = {"titles_added": 0, "plays_added": 0, "progress_added": 0}
+
+        def run(conn):
+            shows = set()
+            for t in titles:
+                kind, tmdb = _title_kind(t["kind"]), str(t["tmdb"])
+                had = conn.execute("SELECT status FROM media WHERE kind = ? AND tmdb = ?",
+                                   (kind, tmdb)).fetchone()
+                old = had[0] if had else None
+                self._ensure(conn, kind, tmdb, t.get("meta"), t.get("added_at") or now)
+                status = t.get("status")
+                if status is not None and (old is None or status > old):
+                    conn.execute("UPDATE media SET status = ? WHERE kind = ? AND tmdb = ?", (status, kind, tmdb))
+                    if old is None:
+                        counts["titles_added"] += 1
+                conn.execute("UPDATE media SET added_at = MIN(added_at, ?), activity_at = MAX(activity_at, ?) "
+                             "WHERE kind = ? AND tmdb = ?",
+                             (t.get("added_at") or now, t.get("activity_at") or 0, kind, tmdb))
+            for kind, tmdb, season, episode, when in plays:
+                play_kind, tmdb = _play_kind(kind), str(tmdb)
+                season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
+                key = (play_kind, tmdb, season, episode)
+                match = "kind = ? AND tmdb = ? AND season = ? AND episode = ?"
+                if when:
+                    same = conn.execute("SELECT 1 FROM plays WHERE {} AND ABS(watched_at - ?) < ?".format(match),
+                                        key + (when, SAME_PLAY)).fetchone()
+                else:
+                    same = conn.execute("SELECT 1 FROM plays WHERE " + match, key).fetchone()
+                if same:
+                    continue
+                when = when or now
+                self._ensure(conn, _title_kind(kind), tmdb, None, when)
+                conn.execute("INSERT INTO plays (kind, tmdb, season, episode, watched_at) VALUES (?, ?, ?, ?, ?)",
+                             key + (when,))
+                conn.execute("DELETE FROM progress WHERE {} AND updated_at <= ?".format(match), key + (when,))
+                conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = ? AND tmdb = ?",
+                             (when, _title_kind(kind), tmdb))
+                counts["plays_added"] += 1
+                if play_kind == "movie":
+                    conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ?",
+                                 (STATUS_COMPLETED, tmdb))
+                else:
+                    shows.add(tmdb)
+            for kind, tmdb, season, episode, position, duration, updated in progress:
+                play_kind, tmdb = _play_kind(kind), str(tmdb)
+                season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
+                key = (play_kind, tmdb, season, episode)
+                if position < MIN_POSITION or (duration and position >= duration * FINISHED):
+                    continue
+                newer = conn.execute(
+                    "SELECT 1 FROM progress WHERE kind = ? AND tmdb = ? AND season = ? AND episode = ? "
+                    "AND updated_at >= ? UNION SELECT 1 FROM plays WHERE kind = ? AND tmdb = ? AND season = ? "
+                    "AND episode = ? AND watched_at >= ?", key + (updated,) + key + (updated,)).fetchone()
+                if newer:
+                    continue
+                self._ensure(conn, _title_kind(kind), tmdb, None, updated)
+                conn.execute("INSERT OR REPLACE INTO progress (kind, tmdb, season, episode, position, duration, "
+                             "title, updated_at) VALUES (?, ?, ?, ?, ?, ?, '', ?)",
+                             key + (float(position), float(duration or 0), updated))
+                conn.execute("UPDATE media SET status = ? WHERE kind = ? AND tmdb = ? "
+                             "AND (status IS NULL OR status = ?)",
+                             (STATUS_IN_PROGRESS, _title_kind(kind), tmdb, STATUS_PLANNING))
+                counts["progress_added"] += 1
+            # Shows with new plays work out their next episode and status; the others keep theirs.
+            for tmdb in shows:
+                self._recompute(conn, tmdb)
+        self._write(run)
+        return counts
+
+    def log_import(self, importer, source, summary):
+        self._write(lambda c: c.execute(
+            "INSERT INTO imports (importer, source, imported_at, summary) VALUES (?, ?, ?, ?)",
+            (importer, source or "", time.time(), json.dumps(summary))))
+
+    def imports(self, limit=20):
+        rows = self._rows("SELECT * FROM imports ORDER BY imported_at DESC LIMIT ?", (limit,))
+        for row in rows:
+            row["summary"] = json.loads(row["summary"] or "{}")
+        return rows
 
     # -- lists ------------------------------------------------------------------------
 

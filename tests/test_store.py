@@ -62,7 +62,7 @@ class MigrationTest(StoreTestCase):
         store.SCHEMA_VERSION = len(store.MIGRATIONS)
         try:
             self.db = Store(self.path)
-            self.assertEqual(self.db.version, 2)
+            self.assertEqual(self.db.version, store.SCHEMA_VERSION)
             conn = sqlite3.connect(self.path)
             self.assertTrue(conn.execute("SELECT name FROM sqlite_master WHERE name = 'picks'").fetchone())
             conn.close()

@@ -24,6 +24,7 @@ Same shapes as Floppy's (`plugin.video.floppy`), so a skin can point at either.
 | `?action=mark_watched\|unwatch\|clear_resume&kind=movie\|episode&tmdb=ID[&season&episode]` | item actions |
 | `?action=mark_season_watched&tmdb=ID&season=N`, `?action=mark_show_watched&tmdb=ID` | bulk |
 | `?action=untrack&media_type=movie\|tv&tmdb=ID`, `?action=refresh` | forget a title; reload widgets |
+| `?action=import_history[&importer=ID]` | import another tracker's export (Settings > Tracking) |
 
 Categories: `continue_watching`, `all_next_up`, `all_in_progress`;
 `movies_continue`, `movies_trending`, `movies_popular`, `movies_top_rated`, `movies_greats`,
@@ -48,3 +49,16 @@ playback started elsewhere is still tracked when its TMDb id can be found.
 
 `resources/lib/store.py`, versioned with `PRAGMA user_version`. Add a migration by appending
 SQL to `MIGRATIONS`; never edit an existing one.
+
+## Importers
+
+Each importer is a JSON definition in `resources/importers/` (or `importers/` in Tally's
+`addon_data` folder, which can add or override one). It names the file format, the columns that
+identify such an export (`detect`) and how each of Tally's fields is read from a row; the field
+spec syntax is documented in `resources/lib/importers.py`. `floppy.json` reads a Floppy CSV export.
+A new file format subclasses `importers.Importer` and registers in `importers.FORMATS`.
+
+Imports merge: statuses only move forward, plays within a minute of a stored one are the same
+play, and resume points older than what Tally has are skipped, so importing a file twice adds
+nothing. Shows or seasons marked completed without episode rows get every aired episode (needs
+the TMDb key). Each run is logged in the `imports` table.
