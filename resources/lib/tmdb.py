@@ -90,6 +90,8 @@ IMAGE_SIZES = {
 # Suits a 1080p screen: posters fill a row card, backdrops the whole screen.
 DEFAULT_IMAGE_SIZE = {"poster": "w342", "backdrop": "w1280", "clearlogo": "w500", "still": "w780"}
 _IMG_SIZE = re.compile(r"^(https?://image\.tmdb\.org/t/p/)[^/]+/")
+# Some TMDb logos are SVGs, which Kodi can't decode; TMDb renders any image as PNG on request.
+_SVG = re.compile(r"\.svg$", re.IGNORECASE)
 
 
 def image_size(art_type):
@@ -101,12 +103,14 @@ def image_size(art_type):
 
 
 def sized(url, size):
-    """A TMDb image URL at another size; any other URL as it is.
+    """A TMDb image URL at another size, an SVG as its PNG; any other URL as it is.
 
     URLs stored with an older size (tally.db posters, cached details) all come out the same, so
     one item always has one URL and Kodi's texture cache keeps hitting.
     """
-    return _IMG_SIZE.sub(r"\g<1>{}/".format(size), url) if url else url
+    if not url or not _IMG_SIZE.match(url):
+        return url
+    return _SVG.sub(".png", _IMG_SIZE.sub(r"\g<1>{}/".format(size), url))
 
 
 def art_url(url, art_type):

@@ -23,6 +23,12 @@ class SizedTest(unittest.TestCase):
         self.assertEqual(tmdb.sized("http://image.tmdb.org/t/p/w1280/x.jpg", "original"),
                          "http://image.tmdb.org/t/p/original/x.jpg")
 
+    def test_svg_as_png(self):
+        # Kodi can't decode SVG (some logos are); TMDb serves the same image as PNG.
+        self.assertEqual(tmdb.sized(IMG + "w500/logo.svg", "w300"), IMG + "w300/logo.png")
+        self.assertEqual(tmdb.sized(IMG + "original/logo.SVG", "w500"), IMG + "w500/logo.png")
+        self.assertEqual(tmdb.sized("https://example.com/logo.svg", "w500"), "https://example.com/logo.svg")
+
     def test_leaves_other_urls(self):
         for url in ("", "DefaultSets.png", "https://example.com/t/p/w500/abc.jpg",
                     "special://home/addons/x/icon.png"):
