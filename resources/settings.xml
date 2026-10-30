@@ -213,6 +213,16 @@
                     </constraints>
                     <control type="spinner" format="string"/>
                 </setting>
+                <setting id="import_url" type="string" label="30262" help="30263">
+                    <level>0</level>
+                    <default/>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30262</heading>
+                    </control>
+                </setting>
                 <setting id="import_history" type="action" label="30260" help="30261">
                     <level>0</level>
                     <data>RunPlugin(plugin://plugin.video.tally/?action=import_history)</data>

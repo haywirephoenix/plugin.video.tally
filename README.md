@@ -24,7 +24,7 @@ Same shapes as Floppy's (`plugin.video.floppy`), so a skin can point at either.
 | `?action=mark_watched\|unwatch\|clear_resume&kind=movie\|episode&tmdb=ID[&season&episode]` | item actions |
 | `?action=mark_season_watched&tmdb=ID&season=N`, `?action=mark_show_watched&tmdb=ID` | bulk |
 | `?action=untrack&media_type=movie\|tv&tmdb=ID`, `?action=refresh` | forget a title; reload widgets |
-| `?action=import_history[&importer=ID]` | import another tracker's export (Settings > Tracking) |
+| `?action=import_history[&importer=ID][&url=URL]` | import another tracker's export from a file or URL (Settings > Tracking) |
 
 Categories: `continue_watching`, `all_next_up`, `all_in_progress`;
 `movies_continue`, `movies_trending`, `movies_popular`, `movies_top_rated`, `movies_greats`,

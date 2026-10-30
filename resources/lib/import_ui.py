@@ -1,11 +1,15 @@
 """The Import route: choose an export, match it to an importer definition, merge it into the store."""
 
 import os
+import urllib.parse
+import urllib.request
 
 import xbmcgui
 import xbmcvfs
 
 from . import common, importers, tmdb
+
+MAX_DOWNLOAD = 64 * 1024 * 1024
 
 
 def _folders():
@@ -19,6 +23,41 @@ def _read(path):
         return bytes(handle.readBytes()).decode("utf-8-sig", errors="replace")
     finally:
         handle.close()
+
+
+def _download(url):
+    """The text at an http(s) URL; a file too big to be an export is refused."""
+    url = urllib.parse.quote(url, safe=":/?&=%#+@~!$'()*,;")  # spaces typed into the address
+    request = urllib.request.Request(url,headers={"User-Agent": "Kodi {}".format(common.ADDON_ID)})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        data = response.read(MAX_DOWNLOAD + 1)
+    if len(data) > MAX_DOWNLOAD:
+        raise ValueError("bigger than {} MB".format(MAX_DOWNLOAD // (1024 * 1024)))
+    return data.decode("utf-8-sig", errors="replace")
+
+
+def _choose_source(router, dialog, masks):
+    """(where, text) of the export to import, from the params, a file or a URL; None when cancelled."""
+    url = router.params.get("url")
+    if not url:
+        picked = dialog.select("Import from", ["A file", "A URL"])
+        if picked < 0:
+            return None
+        if picked == 0:
+            path = dialog.browse(1, "Choose an export to import", "files", "|".join(masks))
+            return (path, _read(path)) if path else None
+        url = dialog.input("URL of the export", common.setting("import_url")).strip()
+        if not url:
+            return None
+    if not url.lower().startswith(("http://", "https://")):
+        raise ValueError("not an http(s) URL")
+    common.addon().setSetting("import_url", url)  # offered again next time
+    progress = xbmcgui.DialogProgressBG()
+    progress.create(common.ADDON_NAME, "Downloading the export")
+    try:
+        return url, _download(url)
+    finally:
+        progress.close()
 
 
 def _resolve(kind, imdb, tvdb, title, year):
@@ -39,15 +78,15 @@ def run(router):
         common.notify("No importers found")
         return
     masks = sorted({ext for imp in found.values() for ext in imp.definition.get("extensions") or []})
-    path = dialog.browse(1, "Choose an export to import", "files", "|".join(masks))
-    if not path:
-        return
     try:
-        text = _read(path)
-    except Exception as exc:  # noqa: BLE001 - any read failure is reported the same way
-        common.log("Import: couldn't read {}: {}".format(path, exc))
-        dialog.ok(common.ADDON_NAME, "Couldn't read that file.")
+        source = _choose_source(router, dialog, masks)
+    except Exception as exc:  # noqa: BLE001 - any read or download failure is reported the same way
+        common.log("Import: couldn't read the export: {}".format(exc))
+        dialog.ok(common.ADDON_NAME, "Couldn't read the export: {}".format(exc))
         return
+    if not source:
+        return
+    path, text = source
 
     wanted = router.params.get("importer")
     choices = [found[wanted]] if wanted in found else [i for i in found.values() if i.detects(text)]

@@ -179,7 +179,15 @@ msgid "Import watch history"
 msgstr ""
 
 msgctxt "#30261"
-msgid "Merge an export from another tracker (Floppy CSV) into Tally: watchlist, watched movies and episodes, resume points. Importing the same file again adds nothing new."
+msgid "Merge an export from another tracker (Floppy CSV), from a file or a URL, into Tally: watchlist, watched movies and episodes, resume points. Importing the same file again adds nothing new."
+msgstr ""
+
+msgctxt "#30262"
+msgid "Import URL"
+msgstr ""
+
+msgctxt "#30263"
+msgid "The http(s) address of an export to import, offered when you choose Import watch history > A URL. Kept from the last URL import."
 msgstr ""
 
 msgctxt "#30400"
