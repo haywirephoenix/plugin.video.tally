@@ -1,9 +1,11 @@
-"""Browse video add-ons to pick the plugin path movies or episodes play through.
+"""Pick the plugin path movies or episodes play through.
 
-Kodi's own path setting only lists media sources and drives, not plugins, so this walks
-add-on directories over JSON-RPC instead. Player files (TMDb Helper's format, see
-playpaths.PLAYER_FOLDERS) are offered ready-made; a browsed path has its values turned into
-placeholders before it is saved.
+The list is the installed player files (TMDb Helper's format, see playpaths.player_folders),
+each with its add-on's icon: a player file says how its add-on plays a title, where a path
+browsed by hand is often just a folder that can't. Browsing an add-on's folders is still
+offered last; a browsed path has its values turned into placeholders before it is saved.
+Kodi's own path setting only lists media sources and drives, not plugins, so the browsing
+walks add-on directories over JSON-RPC.
 """
 
 import json
@@ -17,6 +19,7 @@ from . import common, playpaths
 _SETTING = {"movie": "movie_plugin_path", "episode": "episode_plugin_path"}
 _RUNPLUGIN = {"movie": "movie_plugin_runplugin", "episode": "episode_plugin_runplugin"}
 _HEADING = {"movie": "Movie path", "episode": "Episode path"}
+_OWN_PLAYERS = "special://profile/addon_data/{}/players/"
 
 
 def _rpc(method, params):
@@ -40,10 +43,21 @@ def _list(path):
     return result.get("files") or []
 
 
-def _players(kind, plugin=None):
-    folders = [xbmcvfs.translatePath(f) for f in playpaths.PLAYER_FOLDERS]
-    return playpaths.players(
-        kind, folders, lambda a: xbmc.getCondVisibility("System.HasAddon({})".format(a)), plugin)
+def _enabled(addon):
+    return xbmc.getCondVisibility("System.HasAddon({0}) + System.AddonIsEnabled({0})".format(addon))
+
+
+def _players(kind):
+    folders = playpaths.player_folders(
+        [xbmcvfs.translatePath(f) for f in playpaths.PLAYER_FOLDERS],
+        xbmcvfs.translatePath(_OWN_PLAYERS.format(common.ADDON_ID)),
+        xbmcvfs.translatePath("special://home/addons/"))
+    return playpaths.players(kind, folders, _enabled)
+
+
+def _icon(addon):
+    result = _rpc("Addons.GetAddonDetails", {"addonid": addon, "properties": ["thumbnail"]})
+    return (result.get("addon") or {}).get("thumbnail") or ""
 
 
 def _item(label, thumb="", label2=""):
@@ -53,50 +67,28 @@ def _item(label, thumb="", label2=""):
     return li
 
 
-def _pick_player(heading, kind):
-    found = _players(kind)
-    if not found:
-        xbmcgui.Dialog().ok(heading, "No player files for {}s found.".format(kind))
-        return None
-    items = [_item(name, label2=path) for name, _, path, _ in found]
-    choice = xbmcgui.Dialog().select(heading, items, useDetails=True)
-    return None if choice < 0 else found[choice][2:]
-
-
-def browse(heading, kind):
-    """Return (path, resolvable) for the choice, or None when cancelled."""
+def _browse_addon(heading):
+    """An add-on's folder or item, picked by walking its directories: (path, resolvable), or
+    None to go back."""
     dialog = xbmcgui.Dialog()
     while True:
         addons = _addons()
-        items = [_item("[B]Player files...[/B]")]
-        items += [_item(a.get("name") or a["addonid"], a.get("thumbnail")) for a in addons]
+        items = [_item(a.get("name") or a["addonid"], a.get("thumbnail")) for a in addons]
         choice = dialog.select(heading, items, useDetails=True)
         if choice < 0:
             return None
-        if choice == 0:
-            picked = _pick_player(heading, kind)
-            if picked:
-                return picked
-            continue
-        addon = addons[choice - 1]["addonid"]
-        ready = _players(kind, addon)
-        trail = ["plugin://{}/".format(addon)]
+        trail = ["plugin://{}/".format(addons[choice]["addonid"])]
         while trail:
             path = trail[-1]
             files = _list(path)
             folders = [f for f in files if f.get("filetype") == "directory"]
             playable = [f for f in files if f.get("filetype") != "directory"]
-            shown = ready if len(trail) == 1 else []
-            labels = ["[B]Player: {}[/B]".format(name) for name, _, _, _ in shown]
-            labels += ["[B]Use this path[/B]", ".."]
+            labels = ["[B]Use this path[/B]", ".."]
             labels += ["{}  >".format(f.get("label") or "") for f in folders]
             labels += [f.get("label") or "" for f in playable]
             choice = dialog.select("{}: {}".format(heading, path), labels)
             if choice < 0:
                 return None
-            if choice < len(shown):
-                return shown[choice][2:]
-            choice -= len(shown)
             if choice == 0:
                 return playpaths.templatize(path), True
             if choice == 1:
@@ -107,6 +99,34 @@ def browse(heading, kind):
                 trail.append(picked["file"])
             else:
                 return playpaths.templatize(picked["file"]), True
+
+
+def browse(heading, kind):
+    """Return (path, resolvable) for the choice, or None when cancelled."""
+    dialog = xbmcgui.Dialog()
+    found = _players(kind)
+    if not found:
+        dialog.ok(heading, "No player files for {}s from installed add-ons. Put TMDb Helper player files in "
+                           "{}, or pick a path from an add-on's folders.".format(
+                               kind, _OWN_PLAYERS.format(common.ADDON_ID)))
+        return _browse_addon(heading)
+    icons = {}
+    items = []
+    for name, addon, path, _ in found:
+        if addon not in icons:
+            icons[addon] = _icon(addon)
+        items.append(_item(name, icons[addon], path))
+    items.append(_item("Browse an add-on's folders...", "DefaultFolder.png",
+                       "A path picked by hand may only open a folder rather than play"))
+    while True:
+        choice = dialog.select(heading, items, useDetails=True)
+        if choice < 0:
+            return None
+        if choice < len(found):
+            return found[choice][2:]
+        picked = _browse_addon(heading)
+        if picked:
+            return picked
 
 
 def pick(kind):

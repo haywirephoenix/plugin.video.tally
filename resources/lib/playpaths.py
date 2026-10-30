@@ -3,7 +3,7 @@
 Placeholders work as in TMDb Helper's player files: {title} as it is, {title_url} URL-encoded
 (ENCODINGS), any name TMDb Helper uses (ALIASES), unknown names empty. A path without
 placeholders gets the values of query keys it already has replaced, and missing ones added.
-No Kodi imports here except in player_folders(), so this runs outside Kodi too.
+No Kodi imports here, so this runs outside Kodi too.
 """
 
 import glob
@@ -38,7 +38,7 @@ ENCODINGS = {
 _SUFFIXES = "|".join(re.escape(s) for s in sorted(ENCODINGS, key=len, reverse=True) if s)
 PLACEHOLDER = re.compile(r"\{([a-z_]+?)(" + _SUFFIXES + r")?\}")
 
-# Player files, the user's imported ones first; the first copy of a file name wins. Read only:
+# TMDb Helper's player files, the user's imported ones first (see player_folders). Read only:
 # neither add-on is needed.
 PLAYER_FOLDERS = (
     "special://profile/addon_data/plugin.video.themoviedb.helper/players/",
@@ -46,6 +46,21 @@ PLAYER_FOLDERS = (
     "special://home/addons/plugin.video.themoviedb.helper/resources/players/",
     "special://home/addons/plugin.video.tmdb.bingie.helper/resources/players/",
 )
+
+
+def player_folders(helper_folders, own_folder, addons_dir):
+    """Where player files are read from, in order (the first copy of a file name wins): TMDb
+    Helper's (helper_folders, translated), this add-on's own players folder, then each add-on's
+    resources/players/ in addons_dir. Add-ons such as Ultra Player and Dex Hub ship their player
+    file there, so they're found without TMDb Helper."""
+    shipped = sorted(glob.glob(os.path.join(addons_dir, "*", "resources", "players")))
+    out, seen = [], set()
+    for folder in list(helper_folders) + [own_folder] + shipped:
+        key = os.path.normcase(os.path.normpath(folder)) if folder else None
+        if key and key not in seen:
+            seen.add(key)
+            out.append(folder)
+    return out
 
 
 def values(entry):

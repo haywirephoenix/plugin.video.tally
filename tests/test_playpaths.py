@@ -96,6 +96,20 @@ class PlayersTest(unittest.TestCase):
             self.assertEqual([f[0] for f in playpaths.players("movie", [first, second], installed,
                                                               "plugin.video.dexhub")], ["Dex Hub"])
 
+    def test_folders_include_add_ons_own_player_files(self):
+        with tempfile.TemporaryDirectory() as addons:
+            for addon in ("plugin.video.ultra.player", "plugin.video.themoviedb.helper", "skin.x"):
+                os.makedirs(os.path.join(addons, addon, "resources", "players"))
+            os.makedirs(os.path.join(addons, "plugin.video.none", "resources"))
+            helper = os.path.join(addons, "plugin.video.themoviedb.helper", "resources", "players")
+            folders = playpaths.player_folders(["/data/tmdbhelper/players", helper + os.sep], "/data/own/players",
+                                               addons)
+            self.assertEqual(folders, [
+                "/data/tmdbhelper/players", helper + os.sep, "/data/own/players",  # TMDb Helper's once
+                os.path.join(addons, "plugin.video.ultra.player", "resources", "players"),
+                os.path.join(addons, "skin.x", "resources", "players"),
+            ])
+
 
 if __name__ == "__main__":
     unittest.main()
