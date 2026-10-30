@@ -1,0 +1,16 @@
+# Publishes this add-on to repository.haywire (Kodi repository) when addon.xml's version
+# changes, or by hand. Needs the secret REPOSITORY_HAYWIRE_TOKEN (push access to
+# haywirephoenix/repository.haywire). Already-published versions are skipped.
+name: Publish to repository.haywire
+
+on:
+  push:
+    branches: [main]
+    paths: [addon.xml]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    uses: haywirephoenix/repository.haywire/.github/workflows/publish-addon.yml@main
+    secrets:
+      token: ${{ secrets.REPOSITORY_HAYWIRE_TOKEN }}

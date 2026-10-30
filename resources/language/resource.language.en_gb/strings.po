@@ -1,0 +1,219 @@
+# Kodi Media Center language file
+# Addon Name: Tally
+# Addon id: plugin.video.tally
+msgid ""
+msgstr ""
+"Project-Id-Version: plugin.video.tally
+"
+"Report-Msgid-Bugs-To: 
+"
+"POT-Creation-Date: 2026-10-30 00:00+0000
+"
+"PO-Revision-Date: 2026-10-30 00:00+0000
+"
+"Last-Translator: 
+"
+"Language-Team: English
+"
+"MIME-Version: 1.0
+"
+"Content-Type: text/plain; charset=UTF-8
+"
+"Content-Transfer-Encoding: 8bit
+"
+"Language: en_GB
+"
+"Plural-Forms: nplurals=2; plural=(n != 1);
+"
+
+msgctxt "#30000"
+msgid "Tally"
+msgstr ""
+
+msgctxt "#30100"
+msgid "TMDb"
+msgstr ""
+
+msgctxt "#30101"
+msgid "TMDb API key"
+msgstr ""
+
+msgctxt "#30102"
+msgid "Language"
+msgstr ""
+
+msgctxt "#30103"
+msgid "Needed for artwork, details, search, trending and popular lists, genres and seasons. A free key from themoviedb.org (Settings, API). Lists of what you watched work without it."
+msgstr ""
+
+msgctxt "#30104"
+msgid "TMDb language code, for example en-GB or en-US"
+msgstr ""
+
+msgctxt "#30200"
+msgid "Playback"
+msgstr ""
+
+msgctxt "#30201"
+msgid "Play items with"
+msgstr ""
+
+msgctxt "#30202"
+msgid "None"
+msgstr ""
+
+msgctxt "#30203"
+msgid "Plugin path"
+msgstr ""
+
+msgctxt "#30204"
+msgid "Movie URL template"
+msgstr ""
+
+msgctxt "#30205"
+msgid "Episode URL template"
+msgstr ""
+
+msgctxt "#30206"
+msgid "When a TV show is selected"
+msgstr ""
+
+msgctxt "#30207"
+msgid "Open its seasons"
+msgstr ""
+
+msgctxt "#30208"
+msgid "Play the next episode"
+msgstr ""
+
+msgctxt "#30209"
+msgid "Resume from saved positions"
+msgstr ""
+
+msgctxt "#30210"
+msgid "Off"
+msgstr ""
+
+msgctxt "#30211"
+msgid "Ask"
+msgstr ""
+
+msgctxt "#30212"
+msgid "Always"
+msgstr ""
+
+msgctxt "#30213"
+msgid "Save resume positions"
+msgstr ""
+
+msgctxt "#30214"
+msgid "While playing, save the position every (seconds)"
+msgstr ""
+
+msgctxt "#30215"
+msgid "Placeholders: {tmdb} {imdb} {tvdb} {season} {episode} {title} (show title for episodes) {eptitle} {year} {premiered} {poster} {name}. Add _url, _url+, _+, _-, _escaped or _escaped+ to encode one, e.g. {title_url}."
+msgstr ""
+
+msgctxt "#30216"
+msgid "Saves where you stopped so Continue Watching can show it."
+msgstr ""
+
+msgctxt "#30220"
+msgid "Count as watched after"
+msgstr ""
+
+msgctxt "#30221"
+msgid "How far through a film or episode counts as watched. Playing to the very end always counts."
+msgstr ""
+
+msgctxt "#30222"
+msgid "Custom URL"
+msgstr ""
+
+msgctxt "#30223"
+msgid "Movie path"
+msgstr ""
+
+msgctxt "#30224"
+msgid "Episode path"
+msgstr ""
+
+msgctxt "#30225"
+msgid "Browse for movie path..."
+msgstr ""
+
+msgctxt "#30226"
+msgid "Browse for episode path..."
+msgstr ""
+
+msgctxt "#30227"
+msgid "A plugin path from any video add-on, or a TMDb Helper player file. Browsed paths have their ids and titles turned into placeholders such as {tmdb} and {title_url}, which are filled in when playing. A path without placeholders gets the ids added to it."
+msgstr ""
+
+msgctxt "#30228"
+msgid "Movie path starts the video itself"
+msgstr ""
+
+msgctxt "#30229"
+msgid "Episode path starts the video itself"
+msgstr ""
+
+msgctxt "#30230"
+msgid "On for paths that play on their own instead of returning a video to Kodi (player files with is_resolvable false); Tally then runs them with RunPlugin. Set when you pick a path."
+msgstr ""
+
+msgctxt "#30250"
+msgid "Tracking"
+msgstr ""
+
+msgctxt "#30251"
+msgid "Track videos played outside Tally"
+msgstr ""
+
+msgctxt "#30252"
+msgid "Also track movies and episodes started from a skin, the library or another add-on, when their TMDb id can be found."
+msgstr ""
+
+msgctxt "#30400"
+msgid "Lists"
+msgstr ""
+
+msgctxt "#30401"
+msgid "Items per page"
+msgstr ""
+
+msgctxt "#30402"
+msgid "Show a Next page item"
+msgstr ""
+
+msgctxt "#30403"
+msgid "Next Up order"
+msgstr ""
+
+msgctxt "#30404"
+msgid "Most recently watched"
+msgstr ""
+
+msgctxt "#30405"
+msgid "Latest aired"
+msgstr ""
+
+msgctxt "#30406"
+msgid "Title"
+msgstr ""
+
+msgctxt "#30500"
+msgid "Advanced"
+msgstr ""
+
+msgctxt "#30503"
+msgid "Debug logging"
+msgstr ""
+
+msgctxt "#30504"
+msgid "Clear cache"
+msgstr ""
+
+msgctxt "#30505"
+msgid "Show widget paths"
+msgstr ""

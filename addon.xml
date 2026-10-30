@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="plugin.video.tally" name="Tally" version="0.1.0" provider-name="haywirephoenix">
+    <requires>
+        <import addon="xbmc.python" version="3.0.1"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.service" library="service.py"/>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en_GB">Watched status, resume points and watchlists kept in Kodi, with TMDb lists</summary>
+        <description lang="en_GB">Keeps track of what you watch without a server: watched status, resume points, Next Up and your watchlist live in a small database inside Kodi. Lists include Continue Watching, Next Up, In Progress, Watchlist and Recently Watched, plus Trending, Popular and Top Rated from TMDb, search and genres. Every list can be used as a skin widget. Items play through any player add-on you configure, and videos started elsewhere, such as from a skin, are tracked too.</description>
+        <disclaimer lang="en_GB">Artwork, details, search and the TMDb lists need a free TMDb API key (Settings, TMDb).</disclaimer>
+        <platform>all</platform>
+        <license>GPL-3.0-or-later</license>
+        <news>0.1.0: First version: local watched status, resume points, Next Up and watchlist; TMDb trending, popular, top rated, search and genres.</news>
+        <assets>
+            <icon>resources/icon.png</icon>
+            <fanart>resources/fanart.png</fanart>
+        </assets>
+    </extension>
+</addon>

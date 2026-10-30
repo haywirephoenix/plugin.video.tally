@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<settings version="1">
+    <section id="plugin.video.tally">
+        <category id="tmdb" label="30100">
+            <group id="1">
+                <setting id="tmdb_key" type="string" label="30101" help="30103">
+                    <level>0</level>
+                    <default/>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30101</heading>
+                        <hidden>true</hidden>
+                    </control>
+                </setting>
+                <setting id="tmdb_language" type="string" label="30102" help="30104">
+                    <level>0</level>
+                    <default>en-GB</default>
+                    <control type="edit" format="string">
+                        <heading>30102</heading>
+                    </control>
+                </setting>
+            </group>
+        </category>
+        <category id="playback" label="30200">
+            <group id="1">
+                <setting id="playback" type="integer" label="30201">
+                    <level>0</level>
+                    <default>0</default>
+                    <constraints>
+                        <options>
+                            <option label="30202">0</option>
+                            <option label="30203">1</option>
+                            <option label="30222">2</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+                <setting id="movie_plugin_path" type="string" label="30223" help="30227">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">1</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="edit" format="string">
+                        <heading>30223</heading>
+                    </control>
+                </setting>
+                <setting id="movie_plugin_browse" type="action" label="30225" help="30227">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=pick_play_path&amp;kind=movie)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">1</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
+                <setting id="movie_plugin_runplugin" type="boolean" label="30228" help="30230">
+                    <level>0</level>
+                    <default>false</default>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">1</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="episode_plugin_path" type="string" label="30224" help="30227">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">1</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="edit" format="string">
+                        <heading>30224</heading>
+                    </control>
+                </setting>
+                <setting id="episode_plugin_browse" type="action" label="30226" help="30227">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=pick_play_path&amp;kind=episode)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">1</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
+                <setting id="episode_plugin_runplugin" type="boolean" label="30229" help="30230">
+                    <level>0</level>
+                    <default>false</default>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">1</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="movie_template" type="string" label="30204" help="30215">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">2</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="edit" format="string">
+                        <heading>30204</heading>
+                    </control>
+                </setting>
+                <setting id="episode_template" type="string" label="30205" help="30215">
+                    <level>0</level>
+                    <default></default>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="visible">
+                            <condition operator="is" setting="playback">2</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="edit" format="string">
+                        <heading>30205</heading>
+                    </control>
+                </setting>
+                <setting id="tvshow_action" type="integer" label="30206">
+                    <level>0</level>
+                    <default>0</default>
+                    <constraints>
+                        <options>
+                            <option label="30207">0</option>
+                            <option label="30208">1</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+            </group>
+        </category>
+        <category id="tracking" label="30250">
+            <group id="1">
+                <setting id="track_external" type="boolean" label="30251" help="30252">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="watched_percent" type="integer" label="30220" help="30221">
+                    <level>0</level>
+                    <default>80</default>
+                    <constraints>
+                        <minimum>50</minimum>
+                        <step>5</step>
+                        <maximum>100</maximum>
+                    </constraints>
+                    <control type="slider" format="percentage">
+                        <popup>false</popup>
+                    </control>
+                </setting>
+                <setting id="save_progress" type="boolean" label="30213" help="30216">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="progress_interval" type="integer" label="30214">
+                    <level>1</level>
+                    <default>120</default>
+                    <constraints>
+                        <minimum>30</minimum>
+                        <step>30</step>
+                        <maximum>600</maximum>
+                    </constraints>
+                    <dependencies>
+                        <dependency type="enable">
+                            <condition operator="is" setting="save_progress">true</condition>
+                        </dependency>
+                    </dependencies>
+                    <control type="slider" format="integer">
+                        <popup>false</popup>
+                    </control>
+                </setting>
+                <setting id="resume_mode" type="integer" label="30209">
+                    <level>0</level>
+                    <default>1</default>
+                    <constraints>
+                        <options>
+                            <option label="30210">0</option>
+                            <option label="30211">1</option>
+                            <option label="30212">2</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+            </group>
+        </category>
+        <category id="lists" label="30400">
+            <group id="1">
+                <setting id="page_size" type="integer" label="30401">
+                    <level>0</level>
+                    <default>20</default>
+                    <constraints>
+                        <minimum>5</minimum>
+                        <step>5</step>
+                        <maximum>100</maximum>
+                    </constraints>
+                    <control type="slider" format="integer">
+                        <popup>false</popup>
+                    </control>
+                </setting>
+                <setting id="next_page" type="boolean" label="30402">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="nextup_sort" type="integer" label="30403">
+                    <level>0</level>
+                    <default>0</default>
+                    <constraints>
+                        <options>
+                            <option label="30404">0</option>
+                            <option label="30405">1</option>
+                            <option label="30406">2</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+            </group>
+        </category>
+        <category id="advanced" label="30500">
+            <group id="1">
+                <setting id="debug" type="boolean" label="30503">
+                    <level>1</level>
+                    <default>false</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="clear_cache" type="action" label="30504">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=clear_cache)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
+                <setting id="show_paths" type="action" label="30505">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=widget_paths)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
+            </group>
+        </category>
+    </section>
+</settings>
