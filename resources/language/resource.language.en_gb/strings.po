@@ -233,3 +233,67 @@ msgstr ""
 msgctxt "#30505"
 msgid "Show widget paths"
 msgstr ""
+
+msgctxt "#30600"
+msgid "Images"
+msgstr ""
+
+msgctxt "#30601"
+msgid "Poster size"
+msgstr ""
+
+msgctxt "#30602"
+msgid "Fanart and landscape size"
+msgstr ""
+
+msgctxt "#30603"
+msgid "Clear logo size"
+msgstr ""
+
+msgctxt "#30604"
+msgid "Episode thumbnail size"
+msgstr ""
+
+msgctxt "#30610"
+msgid "Width of posters fetched from TMDb. Kodi downloads, shrinks and caches every image the first time it shows it, so smaller images make widget rows appear sooner, above all on slow TVs. 342 pixels suits rows on a 1080p screen."
+msgstr ""
+
+msgctxt "#30611"
+msgid "Width of backgrounds (fanart and landscape) fetched from TMDb. 1280 pixels suits a 1080p screen; Kodi caches backgrounds at no more than 1080 lines anyway."
+msgstr ""
+
+msgctxt "#30612"
+msgid "Width of clear logos fetched from TMDb."
+msgstr ""
+
+msgctxt "#30613"
+msgid "Width of episode stills fetched from TMDb."
+msgstr ""
+
+msgctxt "#30620"
+msgid "Small (185 px)"
+msgstr ""
+
+msgctxt "#30621"
+msgid "Medium (342 px)"
+msgstr ""
+
+msgctxt "#30622"
+msgid "Large (500 px)"
+msgstr ""
+
+msgctxt "#30623"
+msgid "780 px"
+msgstr ""
+
+msgctxt "#30624"
+msgid "1280 px"
+msgstr ""
+
+msgctxt "#30625"
+msgid "Small (300 px)"
+msgstr ""
+
+msgctxt "#30629"
+msgid "Original (slowest)"
+msgstr ""

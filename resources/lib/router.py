@@ -204,12 +204,13 @@ class Router:
         for r in tmdb.search(kind, query)[: self._page_size()]:
             if kind == "collection":
                 url = common.plugin_url(action="collection", id=r.get("id"))
-                art = tmdb._image(r.get("poster_path"), "w500") or "DefaultSets.png"
+                art = tmdb._image(r.get("poster_path"), tmdb.image_size("poster")) or "DefaultSets.png"
                 items.append(listing.folder_item(r.get("name") or "", url, art, r.get("overview") or "",
-                                                 fanart=tmdb._image(r.get("backdrop_path"), "w1280")))
+                                                 fanart=tmdb._image(r.get("backdrop_path"),
+                                                                    tmdb.image_size("backdrop"))))
             else:
                 url = common.plugin_url(action="person", id=r.get("id"))
-                art = tmdb._image(r.get("profile_path"), "w500") or "DefaultActor.png"
+                art = tmdb._image(r.get("profile_path"), tmdb.image_size("poster")) or "DefaultActor.png"
                 known = ", ".join(k.get("title") or k.get("name") or "" for k in r.get("known_for") or [])
                 items.append(listing.folder_item(r.get("name") or "", url, art, known))
         self._finish(items, content="files")

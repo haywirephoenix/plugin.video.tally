@@ -268,6 +268,60 @@
                 </setting>
             </group>
         </category>
+        <category id="images" label="30600">
+            <group id="1">
+                <setting id="image_poster" type="integer" label="30601" help="30610">
+                    <level>0</level>
+                    <default>1</default>
+                    <constraints>
+                        <options>
+                            <option label="30620">0</option>
+                            <option label="30621">1</option>
+                            <option label="30622">2</option>
+                            <option label="30623">3</option>
+                            <option label="30629">4</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+                <setting id="image_backdrop" type="integer" label="30602" help="30611">
+                    <level>0</level>
+                    <default>1</default>
+                    <constraints>
+                        <options>
+                            <option label="30623">0</option>
+                            <option label="30624">1</option>
+                            <option label="30629">2</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+                <setting id="image_clearlogo" type="integer" label="30603" help="30612">
+                    <level>0</level>
+                    <default>1</default>
+                    <constraints>
+                        <options>
+                            <option label="30625">0</option>
+                            <option label="30622">1</option>
+                            <option label="30629">2</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+                <setting id="image_still" type="integer" label="30604" help="30613">
+                    <level>0</level>
+                    <default>1</default>
+                    <constraints>
+                        <options>
+                            <option label="30625">0</option>
+                            <option label="30623">1</option>
+                            <option label="30629">2</option>
+                        </options>
+                    </constraints>
+                    <control type="spinner" format="string"/>
+                </setting>
+            </group>
+        </category>
         <category id="advanced" label="30500">
             <group id="1">
                 <setting id="debug" type="boolean" label="30503">

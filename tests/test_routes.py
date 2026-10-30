@@ -135,6 +135,26 @@ class ListTest(RouteTestCase):
     def test_unknown_category(self):
         self.assertEqual(run_route("action=list&cat=nope"), (None, None))
 
+    def test_art_at_picked_sizes(self):
+        img = "https://image.tmdb.org/t/p/"
+        extra = {"poster": img + "w500/d.jpg", "fanart": img + "w1280/f.jpg",
+                 "clearlogo": img + "w500/l.png"}
+        entry = {"kind": "episode", "tmdb": "1396", "season": 1, "episode": 2, "title": "E",
+                 "poster": img + "w500/p.jpg", "thumb": img + "w780/s.jpg"}
+        with mock.patch.object(tmdb, "details", lambda *a, **k: extra):
+            art = listing.build(entry)[1].art
+            self.assertEqual(art["poster"], img + "w342/p.jpg")
+            self.assertEqual(art["tvshow.fanart"], img + "w1280/f.jpg")
+            self.assertEqual(art["landscape"], img + "w1280/f.jpg")
+            self.assertEqual(art["clearlogo"], img + "w500/l.png")
+            self.assertEqual(art["thumb"], img + "w780/s.jpg")
+            with mock.patch.dict(SETTINGS, {"image_poster": "3", "image_backdrop": "0",
+                                            "image_still": "0"}):
+                art = listing.build(entry)[1].art
+            self.assertEqual(art["poster"], img + "w780/p.jpg")
+            self.assertEqual(art["fanart"], img + "w780/f.jpg")
+            self.assertEqual(art["thumb"], img + "w300/s.jpg")
+
 
 class ActionTest(RouteTestCase):
     def test_watchlist_add_remove(self):

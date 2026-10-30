@@ -1,7 +1,9 @@
 """Optional TMDb lookups for fanart, landscape art, clear logos and missing details."""
 
 import json
+import re
 import threading
+import time
 from urllib.parse import urlencode
 
 from . import cache, common, perf
@@ -14,6 +16,8 @@ SEARCH_TTL = 24 * 3600
 DISCOVER_TTL = 6 * 3600
 # Discover results with fewer votes than this are mostly junk.
 MIN_VOTES = 50
+# Seconds the artwork queue must stay unchanged before the service fetches it (see fetch_pending).
+PENDING_QUIET = 3
 
 # Errors a lookup can end with; callers treat them all as "no TMDb data".
 # (http.client errors are turned into OSError in _get.)
@@ -72,6 +76,42 @@ def _get(path, params):
 
 def _image(path, size):
     return "{}{}{}".format(IMG, size, path) if path else ""
+
+
+# Image sizes offered per art type (settings image_<type> pick by index), smallest first.
+# Kodi downloads, decodes and caches every image at the size asked for, so smaller is faster
+# on a slow TV; fanart and landscape share one size so a backdrop used for both is fetched once.
+IMAGE_SIZES = {
+    "poster": ("w185", "w342", "w500", "w780", "original"),
+    "backdrop": ("w780", "w1280", "original"),
+    "clearlogo": ("w300", "w500", "original"),
+    "still": ("w300", "w780", "original"),
+}
+# Suits a 1080p screen: posters fill a row card, backdrops the whole screen.
+DEFAULT_IMAGE_SIZE = {"poster": "w342", "backdrop": "w1280", "clearlogo": "w500", "still": "w780"}
+_IMG_SIZE = re.compile(r"^(https?://image\.tmdb\.org/t/p/)[^/]+/")
+
+
+def image_size(art_type):
+    """The TMDb size picked in settings for 'poster', 'backdrop', 'clearlogo' or 'still'."""
+    sizes = IMAGE_SIZES[art_type]
+    default = DEFAULT_IMAGE_SIZE[art_type]
+    index = common.setting_int("image_" + art_type, sizes.index(default))
+    return sizes[index] if 0 <= index < len(sizes) else default
+
+
+def sized(url, size):
+    """A TMDb image URL at another size; any other URL as it is.
+
+    URLs stored with an older size (tally.db posters, cached details) all come out the same, so
+    one item always has one URL and Kodi's texture cache keeps hitting.
+    """
+    return _IMG_SIZE.sub(r"\g<1>{}/".format(size), url) if url else url
+
+
+def art_url(url, art_type):
+    """``url`` at the size picked in settings for ``art_type``."""
+    return sized(url, image_size(art_type))
 
 
 def _pick_logo(logos, language):
@@ -225,10 +265,18 @@ def prefetch(pairs, deadline=None):
         cache.queue_tmdb(futures[f] for f in not_done)
 
 
+def pending_settled(newest, now, quiet=PENDING_QUIET):
+    """True once nothing has been queued for ``quiet`` seconds (``newest``: latest queue time)."""
+    return newest is not None and now - newest >= quiet
+
+
 def fetch_pending(stop=None):
-    """Service side: fetch artwork widgets did not wait for. True when anything new arrived."""
-    pairs = cache.pending_tmdb()
-    if not pairs or not enabled():
+    """Service side: fetch artwork widgets did not wait for. True when anything new arrived.
+
+    Waits until widgets stop queueing, then fetches the whole queue, so a refresh that leaves
+    artwork in several rows ends in one widget reload rather than one per row.
+    """
+    if not enabled() or not pending_settled(cache.pending_newest(), time.time()):
         return False
     from concurrent.futures import ThreadPoolExecutor
 
@@ -237,11 +285,19 @@ def fetch_pending(stop=None):
             return None
         return details(*pair)
 
+    arrived = False
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(load, pairs))
-    finished = [pair for pair, result in zip(pairs, results) if result is not None]
-    cache.done_tmdb(finished)
-    return any(results)
+        while not (stop is not None and stop.is_set()):
+            pairs = cache.pending_tmdb()
+            if not pairs:
+                break
+            results = list(pool.map(load, pairs))
+            finished = [pair for pair, result in zip(pairs, results) if result is not None]
+            cache.done_tmdb(finished)
+            arrived = arrived or any(results)
+            if len(finished) < len(pairs):
+                break
+    return arrived
 
 def _cached(key, ttl, fetch):
     hit = cache.get(key)

@@ -249,24 +249,26 @@ def build(entry, in_resume_list=False):
         li.setProperty("tally.episodes_left", str(entry["episodes_left"]))
 
     # -- art --------------------------------------------------------------------
-    poster = entry.get("poster") or extra.get("poster") or ""
-    fanart = extra.get("fanart") or ""
-    landscape = extra.get("landscape") or fanart
+    # Each URL at the size picked in settings (stored ones may carry another size).
+    poster = tmdb.art_url(entry.get("poster") or extra.get("poster") or "", "poster")
+    fanart = tmdb.art_url(extra.get("fanart") or "", "backdrop")
+    landscape = tmdb.art_url(extra.get("landscape") or "", "backdrop") or fanart
+    clearlogo = tmdb.art_url(extra.get("clearlogo") or "", "clearlogo")
     art = {
         "poster": poster,
         "fanart": fanart or poster,
         "landscape": landscape,
-        "clearlogo": extra.get("clearlogo") or "",
+        "clearlogo": clearlogo,
         "icon": poster,
     }
     if kind == "episode":
-        thumb = entry.get("thumb") or landscape or fanart or poster
+        thumb = tmdb.art_url(entry.get("thumb") or "", "still") or landscape or fanart or poster
         art.update({
             "thumb": thumb,
             "tvshow.poster": poster,
             "tvshow.fanart": fanart,
             "tvshow.landscape": landscape,
-            "tvshow.clearlogo": extra.get("clearlogo") or "",
+            "tvshow.clearlogo": clearlogo,
         })
     else:
         art["thumb"] = poster

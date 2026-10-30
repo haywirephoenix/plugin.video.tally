@@ -131,6 +131,12 @@ def queue_tmdb(pairs):
         conn.commit()
 
 
+def pending_newest():
+    """When the latest artwork lookup was queued (epoch seconds), or None when none are."""
+    with _LOCK:
+        return _connect().execute("SELECT MAX(queued) FROM tmdb_pending").fetchone()[0]
+
+
 def pending_tmdb(limit=100):
     with _LOCK:
         return _connect().execute(
