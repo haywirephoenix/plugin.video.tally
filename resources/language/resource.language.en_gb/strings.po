@@ -218,6 +218,14 @@ msgctxt "#30406"
 msgid "Title"
 msgstr ""
 
+msgctxt "#30407"
+msgid "Hide movies not out to watch yet"
+msgstr ""
+
+msgctxt "#30408"
+msgid "TMDb's movie lists (trending, popular, top rated, genres) leave out movies that can't be watched at home yet: no digital, disc or TV release so far, and in cinemas less than 120 days. Search still finds them."
+msgstr ""
+
 msgctxt "#30500"
 msgid "Advanced"
 msgstr ""

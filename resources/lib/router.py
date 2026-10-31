@@ -75,6 +75,20 @@ class Router:
         self._finish(items, content)
 
     @staticmethod
+    def _fill_ids(entry):
+        """The ids TMDb's lists leave out, from the title's details (cached; one lookup if not):
+        a movie's IMDb id, an episode's show IMDb and TVDb ids. Players such as Ultra Player's
+        sources (Torrentio) find movies by IMDb id only."""
+        if not entry.get("tmdb") or not tmdb.enabled():
+            return
+        if entry["kind"] == "movie" and not entry.get("imdb"):
+            entry["imdb"] = tmdb.details("movie", entry["tmdb"]).get("imdb") or ""
+        elif entry["kind"] == "episode" and not (entry.get("show_imdb") and entry.get("tvdb")):
+            show = tmdb.details("tv", entry["tmdb"])
+            entry["show_imdb"] = entry.get("show_imdb") or show.get("imdb") or ""
+            entry["tvdb"] = entry.get("tvdb") or show.get("tvdb") or ""
+
+    @staticmethod
     def _alternate(groups):
         """Interleave movie and show results so neither type buries the other."""
         entries = []
@@ -246,6 +260,8 @@ class Router:
         # Pages are cut from one merged list, so each type needs enough for every page so far
         # (plus one, to tell whether there is a next page). TMDb pages are cached.
         wanted_count = (page + 1) * size + 1
+        if "movie" in types and categories.hide_unreleased():
+            wanted_count *= 2  # room for the movies not out yet, which are left out
 
         queries = {}
         for kind in types:
@@ -267,6 +283,7 @@ class Router:
             thread.join()
 
         groups = [[tmdb.to_entry(r, kind) for r in results.get(kind) or []] for kind in types]
+        groups = [categories.released_only(group, 1.0 if self.widget else None) for group in groups]
         entries = self._alternate(groups)
         start = page * size
         page_entries, has_more = entries[start:start + size], len(entries) > start + size
@@ -322,6 +339,7 @@ class Router:
         if not model.playable(entry):
             common.notify("No TMDb, IMDb or TVDb id for this item")
             return
+        self._fill_ids(entry)
         url = listing.player_url(entry)
         if not url:
             common.notify("Choose a player in Tally settings > Playback")

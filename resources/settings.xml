@@ -254,6 +254,11 @@
                     <default>true</default>
                     <control type="toggle"/>
                 </setting>
+                <setting id="hide_unreleased" type="boolean" label="30407" help="30408">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
                 <setting id="nextup_sort" type="integer" label="30403">
                     <level>0</level>
                     <default>0</default>

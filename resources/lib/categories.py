@@ -4,6 +4,8 @@ Each category's fetch(page, size) returns (entries, has_more). Lists of what you
 from the store, so they need no network; the TMDb lists need the TMDb API key.
 """
 
+import time
+
 from . import common, model, tmdb
 
 MOVIE, TV, MIXED, EPISODES = "movies", "tvshows", "videos", "episodes"
@@ -127,18 +129,38 @@ def history(kind):
     return fetch
 
 
+def hide_unreleased():
+    return common.setting_bool("hide_unreleased", True)
+
+
+def released_only(entries, deadline=1.0):
+    """Entries without the movies that can't be watched at home yet (tmdb.released_at_home),
+    when the hide_unreleased setting is on. Their details are loaded first (up to ``deadline``
+    seconds, as widgets wait); a movie whose details didn't come in time is kept."""
+    movies = [e for e in entries if e["kind"] == "movie" and e.get("tmdb")]
+    if not hide_unreleased() or not movies:
+        return entries
+    tmdb.prefetch((("movie", e["tmdb"]) for e in movies), deadline=deadline)
+    today = time.strftime("%Y-%m-%d")
+    return [e for e in entries if e["kind"] != "movie" or tmdb.released_at_home(e.get("tmdb"), today) is not False]
+
+
 def tmdb_list(name, tmdb_type, unseen=False):
     def fetch(page, size):
-        if unseen:
-            # Read past what you've seen; a page can come up a little short.
-            watched = _store().watched_ids(tmdb_type)
+        filtered = tmdb_type == "movie" and hide_unreleased()
+        if unseen or filtered:
+            # Read past what's left out (seen, not out yet); a page can come up a little short.
+            watched = _store().watched_ids(tmdb_type) if unseen else set()
             results, _ = tmdb.tmdb_list(name, tmdb_type, limit=(page + 1) * size * 2 + 20)
             results = [r for r in results if str(r.get("id")) not in watched]
+            entries = [tmdb.to_entry(r, tmdb_type) for r in results]
+            if filtered:
+                entries = released_only(entries)
             start = page * size
-            results, more = results[start:start + size], len(results) > start + size
+            entries, more = entries[start:start + size], len(entries) > start + size
         else:
             results, more = tmdb.tmdb_list(name, tmdb_type, limit=size, page=page)
-        entries = [tmdb.to_entry(r, tmdb_type) for r in results]
+            entries = [tmdb.to_entry(r, tmdb_type) for r in results]
         entries = [e for e in model.dedupe(entries) if model.playable(e)]
         return annotate(entries), more
     return fetch

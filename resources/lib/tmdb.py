@@ -12,6 +12,15 @@ API_HOST = "api.themoviedb.org"
 IMG = "https://image.tmdb.org/t/p/"
 TTL = 14 * 24 * 3600
 MISS_TTL = 24 * 3600
+# A movie not out to watch at home yet (home_release) is looked up again sooner: its digital
+# date can appear any day.
+UNRELEASED_TTL = 2 * 24 * 3600
+# TMDb release types (release_dates): 1 premiere, 2 theatrical (limited), 3 theatrical,
+# 4 digital, 5 physical, 6 TV. A movie can be watched at home from its first 4, 5 or 6, or
+# HOME_AFTER_CINEMA days after it reached cinemas: older movies often have only cinema dates.
+HOME_RELEASE_TYPES = (4, 5, 6)
+CINEMA_RELEASE_TYPES = (2, 3)
+HOME_AFTER_CINEMA = 120
 SEARCH_TTL = 24 * 3600
 DISCOVER_TTL = 6 * 3600
 # Discover results with fewer votes than this are mostly junk.
@@ -137,7 +146,46 @@ def _pick_landscape(backdrops, language):
 
 
 def _details_key(kind, tmdb_id, language):
-    return "tmdb:{}:{}:{}".format("movie" if kind == "movie" else "tv", tmdb_id, language)
+    # "r": details with release dates (home_release); older entries without them are fetched anew.
+    return "tmdb:{}:{}:{}:r".format("movie" if kind == "movie" else "tv", tmdb_id, language)
+
+
+def home_release(release_dates, primary_date=""):
+    """The date (YYYY-MM-DD) a movie can be watched at home: its earliest digital, physical or TV
+    release in any country, or HOME_AFTER_CINEMA days after its first cinema release (or, with no
+    release dates at all, its primary release date), whichever comes first; "" when unknown.
+    release_dates: TMDb's release_dates "results" (per country, each with release_dates)."""
+    import datetime
+    home, cinema = [], []
+    for country in release_dates or []:
+        for release in country.get("release_dates") or []:
+            day = (release.get("release_date") or "")[:10]
+            if len(day) != 10:
+                continue
+            if release.get("type") in HOME_RELEASE_TYPES:
+                home.append(day)
+            elif release.get("type") in CINEMA_RELEASE_TYPES:
+                cinema.append(day)
+    if not home and not cinema and primary_date:
+        cinema.append(primary_date[:10])
+    candidates = list(home)
+    if cinema:
+        try:
+            first = datetime.date(*map(int, min(cinema).split("-")))
+            candidates.append((first + datetime.timedelta(days=HOME_AFTER_CINEMA)).isoformat())
+        except ValueError:
+            pass
+    return min(candidates) if candidates else ""
+
+
+def released_at_home(tmdb_id, today=None):
+    """True or False: a movie can be watched at home by today (home_release); None when its
+    details aren't loaded (left to the caller, which keeps it)."""
+    found = details("movie", tmdb_id, fetch=False)
+    if not found or "home_release" not in found:
+        return None
+    day = found["home_release"]
+    return bool(day) and day <= (today or time.strftime("%Y-%m-%d"))
 
 
 def details(kind, tmdb_id, fetch=True):
@@ -163,7 +211,7 @@ def details(kind, tmdb_id, fetch=True):
             "{}/{}".format(tmdb_type, tmdb_id),
             {
                 "language": language,
-                "append_to_response": "images,external_ids",
+                "append_to_response": "images,external_ids" + (",release_dates" if tmdb_type == "movie" else ""),
                 "include_image_language": "{},en,null".format(lang),
             },
         )
@@ -198,7 +246,12 @@ def details(kind, tmdb_id, fetch=True):
         "seasons": data.get("number_of_seasons") or 0,
         "episodes": data.get("number_of_episodes") or 0,
     }
-    cache.set(cache_key, result, TTL)
+    ttl = TTL
+    if tmdb_type == "movie":
+        result["home_release"] = home_release((data.get("release_dates") or {}).get("results"), date or "")
+        if not result["home_release"] or result["home_release"] > time.strftime("%Y-%m-%d"):
+            ttl = UNRELEASED_TTL
+    cache.set(cache_key, result, ttl)
     return result
 
 
