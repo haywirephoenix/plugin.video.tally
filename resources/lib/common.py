@@ -155,7 +155,10 @@ def get_json_property(name):
 
 
 def bump_widget_reload():
-    """Change the reload token that widget paths include, so Kodi lists the widgets again."""
+    """Change the reload token that widget paths include, so Kodi lists the widgets again.
+
+    The token is the time in milliseconds: TMDb Helper's Tally sync reads it to resync after a change.
+    """
     import time
 
-    home_property(PROP_RELOAD, str(int(time.time() * 1000) % 10 ** 10))
+    home_property(PROP_RELOAD, str(int(time.time() * 1000)))

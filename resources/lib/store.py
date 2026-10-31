@@ -576,6 +576,29 @@ class Store:
             found.update((r["tmdb"], r) for r in rows)
         return found
 
+    # -- TMDb Helper sync (script.module.tmdbhelper.sync.tally) ------------------------
+
+    def play_counts(self, kind):
+        """Plays of every movie or episode: [{tmdb, season, episode, plays, last_watched_at}]."""
+        return self._rows(
+            "SELECT tmdb, season, episode, COUNT(*) AS plays, MAX(watched_at) AS last_watched_at "
+            "FROM plays WHERE kind = ? GROUP BY tmdb, season, episode", (_play_kind(kind),))
+
+    def activity(self):
+        """{list: "count|newest"} for movie_plays, episode_plays, progress and watchlist.
+
+        Each value changes whenever its list does, removals included.
+        """
+        queries = {
+            "movie_plays": ("SELECT COUNT(*), MAX(watched_at) FROM plays WHERE kind = 'movie'", ()),
+            "episode_plays": ("SELECT COUNT(*), MAX(watched_at) FROM plays WHERE kind = 'episode'", ()),
+            "progress": ("SELECT COUNT(*), MAX(updated_at) FROM progress", ()),
+            "watchlist": ("SELECT COUNT(*), MAX(added_at) FROM media WHERE status = ?", (STATUS_PLANNING,)),
+        }
+        with self._lock:
+            return {name: "{}|{}".format(*self._conn.execute(sql, args).fetchone())
+                    for name, (sql, args) in queries.items()}
+
     def watched_ids(self, kind):
         """TMDb ids of movies or shows with any play."""
         return {r["tmdb"] for r in self._rows("SELECT DISTINCT tmdb FROM plays WHERE kind = ?",

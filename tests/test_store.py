@@ -223,6 +223,31 @@ class ShowProgressTest(StoreTestCase):
                          ([], [], None))
 
 
+class SyncReadTest(StoreTestCase):
+    def test_play_counts(self):
+        self.db.add_play("movie", "1", when=100)
+        self.db.add_play("movie", "1", when=200)
+        self.db.add_play("episode", "3", 1, 2, when=150)
+        self.assertEqual(self.db.play_counts("movie"), [
+            {"tmdb": "1", "season": -1, "episode": -1, "plays": 2, "last_watched_at": 200}])
+        self.assertEqual(self.db.play_counts("episode"), [
+            {"tmdb": "3", "season": 1, "episode": 2, "plays": 1, "last_watched_at": 150}])
+
+    def test_activity_changes_on_removal(self):
+        before = self.db.activity()
+        self.assertEqual(before["watchlist"], "0|None")
+        self.db.add_watchlist("movie", "1")
+        added = self.db.activity()
+        self.assertNotEqual(added["watchlist"], before["watchlist"])
+        self.db.remove_watchlist("movie", "1")
+        self.assertNotEqual(self.db.activity()["watchlist"], added["watchlist"])
+        self.db.add_play("episode", "3", 1, 1)
+        played = self.db.activity()
+        self.assertEqual(played["movie_plays"], before["movie_plays"])
+        self.db.remove_play("episode", "3", 1, 1)
+        self.assertNotEqual(self.db.activity()["episode_plays"], played["episode_plays"])
+
+
 class ApplyStateTest(StoreTestCase):
     def test_tmdb_entries_get_state(self):
         self.db.add_watchlist("movie", "1")
