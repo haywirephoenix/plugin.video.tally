@@ -343,6 +343,12 @@ class Store:
                              (tmdb, STATUS_IN_PROGRESS))
         self._write(run)
 
+    def movie_progress(self):
+        """{tmdb: (position, duration)} of the movies' resume points."""
+        rows = self._rows("SELECT tmdb, position, duration FROM progress WHERE kind = 'movie' AND position >= ?",
+                          (MIN_POSITION,))
+        return {r["tmdb"]: (r["position"], r["duration"]) for r in rows}
+
     def season_progress(self, tmdb, season):
         """{episode: (position, duration)} of a show season's resume points."""
         rows = self._rows("SELECT episode, position, duration FROM progress WHERE kind = 'episode' "

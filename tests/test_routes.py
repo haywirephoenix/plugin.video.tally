@@ -197,5 +197,19 @@ class PlaybackSaveTest(RouteTestCase):
         self.assertTrue(PROPS.get(common.PROP_RELOAD))
 
 
+
+class ResumeFillTest(RouteTestCase):
+    def test_lists_carry_resume_points(self):
+        # Any list's items get their resume point (the skin's Resume / Play from beginning)
+        self.db.save_progress("movie", "155", 600, 9000)
+        self.db.save_progress("episode", "1399", 300, 3000, season=1, episode=2)
+        entries = [{"kind": "movie", "tmdb": "155"}, {"kind": "movie", "tmdb": "11"},
+                   {"kind": "episode", "tmdb": "1399", "season": 1, "episode": 2}]
+        router.Router._fill_resume(entries)
+        self.assertEqual((entries[0]["resume_pos"], entries[0]["resume_total"]), (600, 9000))
+        self.assertNotIn("resume_pos", entries[1])
+        self.assertEqual(entries[2]["resume_pos"], 300)
+
+
 if __name__ == "__main__":
     unittest.main()

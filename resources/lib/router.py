@@ -60,6 +60,7 @@ class Router:
             deadline=1.0 if self.widget else None,
         )
         perf.mark("prefetch")
+        self._fill_resume(entries)
         items = []
         for entry in entries:
             try:
@@ -73,6 +74,26 @@ class Router:
             label = "[B]Next page ({})[/B]".format(page + 1)
             items.append(listing.folder_item(label, url, icon="DefaultFolder.png"))
         self._finish(items, content)
+
+    @staticmethod
+    def _fill_resume(entries):
+        """Resume points for the entries that came without one (lists other than Continue
+        Watching), so every item shows it: a progress bar, the skin's Resume button."""
+        missing = [e for e in entries if not e.get("resume_pos") and e.get("tmdb")
+                   and (e["kind"] == "movie" or (e["kind"] == "episode" and e.get("season") is not None
+                                                 and e.get("episode") is not None))]
+        if not missing:
+            return
+        store = common.store()
+        movies = store.movie_progress() if any(e["kind"] == "movie" for e in missing) else {}
+        for entry in missing:
+            if entry["kind"] == "movie":
+                pos, total = movies.get(str(entry["tmdb"]), (0, 0))
+            else:
+                pos, total = store.get_progress("episode", entry["tmdb"], entry["season"], entry["episode"])
+            total = total or entry.get("runtime") or 0
+            if pos >= 60 and not (total and pos >= total * 0.95):
+                entry["resume_pos"], entry["resume_total"] = int(pos), int(total)
 
     @staticmethod
     def _fill_ids(entry):
