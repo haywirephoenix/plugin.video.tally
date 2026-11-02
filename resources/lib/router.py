@@ -18,6 +18,9 @@ class Router:
         self.handle = int(argv[1]) if len(argv) > 1 and argv[1].lstrip("-").isdigit() else -1
         query = argv[2][1:] if len(argv) > 2 and argv[2].startswith("?") else ""
         self.params = dict(parse_qsl(query))
+        # Kodi's own play choice: "resume:true" for Resume, "resume:false" for Play from
+        # beginning (and any other play or listing); None when it doesn't say.
+        self.kodi_resume = {"resume:true": True, "resume:false": False}.get(argv[3] if len(argv) > 3 else "")
         self.widget = self.params.get("widget") == "1" or listing.is_widget_context()
 
     # -- helpers --------------------------------------------------------------
@@ -368,6 +371,11 @@ class Router:
         # A known position (resume lists) or 0 for "from the start"; left empty, the
         # service looks the position up when the video starts.
         resume = "0" if p.get("noresume") == "1" else str(int(float(p.get("resume") or 0)) or "")
+        # A play Kodi started (its context menu, another skin's click) says whether Resume or Play
+        # from beginning was chosen; the link's position is the same for both. A skin.ultra play of
+        # its own says nothing (always resume:false): its link's position stands.
+        if self.kodi_resume is False and not common.skin_play_starting():
+            resume = "0"
         common.set_play_handoff(
             kind=entry["kind"],
             tmdb=entry["tmdb"],

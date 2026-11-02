@@ -148,12 +148,21 @@ ULTRA_EXTERNAL_READY = "ultra.play.external.ready"
 ULTRA_EXTERNAL_PLAY = "ultra.play.external"
 
 
+def skin_play_starting():
+    """True while skin.ultra starts a play of its own (ultra.player.pending, or its loading screen
+    1111 is up): this route was called from it."""
+    if xbmc.getSkinDir() != "skin.ultra":
+        return False
+    pending = xbmcgui.Window(HOME).getProperty("ultra.player.pending")
+    return bool(pending) or xbmc.getCondVisibility("Window.IsVisible(1111)")
+
+
 def hand_play_to_skin(command):
     """True when skin.ultra took the play builtin over; False to run it here."""
     window = xbmcgui.Window(HOME)
     if xbmc.getSkinDir() != "skin.ultra" or window.getProperty(ULTRA_EXTERNAL_READY) != "1":
         return False
-    if window.getProperty("ultra.player.pending") or xbmc.getCondVisibility("Window.IsVisible(1111)"):
+    if skin_play_starting():
         return False
     window.setProperty(ULTRA_EXTERNAL_PLAY, command)
     return True
