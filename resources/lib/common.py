@@ -140,6 +140,25 @@ def set_play_handoff(**values):
             window.setProperty(PLAY_PREFIX + field, str(value))
 
 
+# skin.ultra plays what it didn't start (Kodi's context menu's Play / Play from beginning) behind
+# its loading screen: while its helper takes plays over (ultra.play.external.ready), the play
+# builtin goes to it (ultra.play.external) instead of running here, unless a play of the skin's
+# own is starting (ultra.player.pending, its loading screen 1111 up): that one called this route.
+ULTRA_EXTERNAL_READY = "ultra.play.external.ready"
+ULTRA_EXTERNAL_PLAY = "ultra.play.external"
+
+
+def hand_play_to_skin(command):
+    """True when skin.ultra took the play builtin over; False to run it here."""
+    window = xbmcgui.Window(HOME)
+    if xbmc.getSkinDir() != "skin.ultra" or window.getProperty(ULTRA_EXTERNAL_READY) != "1":
+        return False
+    if window.getProperty("ultra.player.pending") or xbmc.getCondVisibility("Window.IsVisible(1111)"):
+        return False
+    window.setProperty(ULTRA_EXTERNAL_PLAY, command)
+    return True
+
+
 def clear_play_handoff():
     set_play_handoff()
 

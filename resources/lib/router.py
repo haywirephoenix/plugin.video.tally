@@ -381,7 +381,11 @@ class Router:
         common.log("Handing playback to {}".format(url))
         # Player files marked is_resolvable=false start the video themselves.
         builtin = "PlayMedia" if listing.player_resolvable(entry) else "RunPlugin"
-        xbmc.executebuiltin('{}("{}")'.format(builtin, url))
+        command = '{}("{}")'.format(builtin, url)
+        if common.hand_play_to_skin(command):
+            common.log("Handed the play to the skin's loading screen")
+            return
+        xbmc.executebuiltin(command)
 
     # -- actions --------------------------------------------------------------
 
