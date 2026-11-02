@@ -106,6 +106,19 @@ def plugin_url(**params):
     return "plugin://{}/?{}".format(ADDON_ID, urlencode(clean))
 
 
+CONTEXT_TITLE = "Tally"  # the context menu entry its own entries go under
+
+
+def context_submenu(items):
+    """Kodi's context menu has no submenus: the add-on's entries (label, builtin) go under one
+    entry titled after it, which lists them in Kodi's context menu dialog (router action submenu)."""
+    if not items:
+        return []
+    prefix = CONTEXT_TITLE + ": "
+    entries = [(label[len(prefix):] if label.startswith(prefix) else label, action) for label, action in items]
+    return [(CONTEXT_TITLE, "RunPlugin({})".format(plugin_url(action="submenu", items=json.dumps(entries))))]
+
+
 def home_property(name, value=None):
     window = xbmcgui.Window(HOME)
     if value is None:

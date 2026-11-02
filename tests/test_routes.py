@@ -3,11 +3,13 @@
 python -m unittest discover tests
 """
 
+import json
 import os
 import sys
 import tempfile
 import unittest
 from unittest import mock
+from urllib.parse import parse_qsl
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 for name in ("xbmc", "xbmcaddon", "xbmcgui", "xbmcplugin", "xbmcvfs"):
@@ -113,7 +115,11 @@ class ListTest(RouteTestCase):
         self.assertEqual(li.props["tvshow.imdb_id"], "tt0903747")
         self.assertIn("action=play&kind=episode&tmdb=1396", li.props["tally.play_path"])
         self.assertIn("resume=300", li.props["tally.play_path"])
-        self.assertIn(("Tally: Remove from Continue Watching"), [label for label, _ in li.menu])
+        # Its context menu entries sit under one "Tally" entry, which lists them (action submenu)
+        self.assertEqual([label for label, _ in li.menu], ["Tally"])
+        query = dict(parse_qsl(li.menu[0][1][len("RunPlugin(plugin://plugin.video.tally/?"):-1]))
+        self.assertEqual(query["action"], "submenu")
+        self.assertIn("Remove from Continue Watching", [label for label, _ in json.loads(query["items"])])
         movie = items[1][1]
         self.assertEqual(movie.props["tmdb_id"], "603")
         self.assertEqual(movie.props["tally.status"], "1")

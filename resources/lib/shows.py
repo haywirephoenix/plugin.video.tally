@@ -78,11 +78,11 @@ def list_seasons(router):
             "tvshow.clearlogo": clearlogo,
         }
         li.setArt({k: v for k, v in art.items() if v})
-        li.addContextMenuItems([
+        li.addContextMenuItems(common.context_submenu([
             ("Tally: Mark season watched", "RunPlugin({})".format(common.plugin_url(
                 action="mark_season_watched", tmdb=tmdb_id, season=number))),
             ("Tally: Refresh widgets", "RunPlugin({})".format(common.plugin_url(action="refresh"))),
-        ])
+        ]))
         items.append((listing.episodes_url(tmdb_id, number, title, poster), li, True))
     router._finish(items, "seasons")
 

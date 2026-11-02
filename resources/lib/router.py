@@ -1,6 +1,7 @@
 """Plugin entry point: menus, lists and item actions."""
 
 import itertools
+import json
 import sys
 import threading
 from urllib.parse import parse_qsl
@@ -396,6 +397,16 @@ class Router:
         xbmc.executebuiltin(command)
 
     # -- actions --------------------------------------------------------------
+
+    def submenu(self):
+        """An item's context menu entries under the add-on's own (common.context_submenu)."""
+        try:
+            entries = json.loads(self.params.get("items") or "[]")
+        except ValueError:
+            return
+        choice = xbmcgui.Dialog().contextmenu([label for label, _ in entries])
+        if choice >= 0:
+            xbmc.executebuiltin(entries[choice][1])
 
     def _after_change(self, message):
         common.bump_widget_reload()

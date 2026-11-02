@@ -302,7 +302,7 @@ def build(entry, in_resume_list=False):
             action="remove_watchlist", media_type=media_type, tmdb=entry["tmdb"]))
 
     li.setProperty("IsPlayable", "false")
-    li.addContextMenuItems(context_menu(entry, in_resume_list))
+    li.addContextMenuItems(common.context_submenu(context_menu(entry, in_resume_list)))
     return path, li, is_folder
 
 
