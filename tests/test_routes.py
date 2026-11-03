@@ -59,6 +59,7 @@ def run_route(query):
     rendered = {}
 
     def capture(self, entries, has_more, content, in_resume, next_params):
+        self._fill_shows(entries)  # as _render_entries does: shows' progress and banners
         rendered["entries"] = entries
         rendered["items"] = [listing.build(e, in_resume) for e in entries]
 
@@ -123,6 +124,22 @@ class ListTest(RouteTestCase):
         movie = items[1][1]
         self.assertEqual(movie.props["tmdb_id"], "603")
         self.assertEqual(movie.props["tally.status"], "1")
+
+    def test_in_progress_has_caught_up_shows_coming_back(self):
+        # Caught up on Dexter: Resurrection, its next season dated; caught up on a show with
+        # nothing announced; part-way through Breaking Bad.
+        self.db.add_plays("259909", [(1, 1), (1, 2)], meta={"title": "Dexter: Resurrection"})
+        self.db.set_show_structure("259909", [[1, 2], [2, 10]], [1, 2], False, "2025-09-05", "2099-06-01")
+        self.db.add_plays("2316", [(1, 1)], meta={"title": "The Office"})
+        self.db.set_show_structure("2316", [[1, 1]], [1, 1], False, "2013-05-16", "")
+        self.db.add_play("episode", "1396", 1, 1, meta={"title": "Breaking Bad"})
+        self.db.set_show_structure("1396", [[1, 7]], [1, 7])
+        entries, items = run_route("action=list&cat=all_in_progress&widget=1&limit=10")
+        shown = {e["tmdb"]: li for e, (_, li, _) in zip(entries, items)}
+        self.assertEqual(sorted(shown), ["1396", "259909"])
+        self.assertEqual(shown["259909"].props["comingsoon"], "true")
+        self.assertNotIn("comingsoon", shown["1396"].props)
+        self.assertEqual(shown["1396"].props["watchedepisodepercent"], "14")  # 1 of 7 out
 
     def test_next_up_and_show_properties(self):
         self.db.add_play("episode", "1396", 1, 1, meta={"title": "Breaking Bad"})

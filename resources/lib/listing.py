@@ -249,6 +249,10 @@ def build(entry, in_resume_list=False):
         li.setProperty("tmdb_type", "movie" if kind == "movie" else "tv")
     if entry.get("episodes_left") is not None:
         li.setProperty("tally.episodes_left", str(entry["episodes_left"]))
+    if entry.get("watched_percent") is not None:
+        li.setProperty("watchedepisodepercent", str(entry["watched_percent"]))  # ListItem.PercentPlayed
+    if entry.get("banner"):
+        li.setProperty(entry["banner"], "true")  # comingsoon / newepisodes: a skin's card banner
 
     # -- art --------------------------------------------------------------------
     # Each URL at the size picked in settings (stored ones may carry another size).

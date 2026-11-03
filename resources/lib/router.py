@@ -65,6 +65,7 @@ class Router:
         )
         perf.mark("prefetch")
         self._fill_resume(entries)
+        self._fill_shows(entries)
         items = []
         for entry in entries:
             try:
@@ -98,6 +99,23 @@ class Router:
             total = total or entry.get("runtime") or 0
             if pos >= 60 and not (total and pos >= total * 0.95):
                 entry["resume_pos"], entry["resume_total"] = int(pos), int(total)
+
+    @staticmethod
+    def _fill_shows(entries):
+        """A tracked show's episodes watched out of those aired (model.watched_percent) and its card's
+        banner (model.show_banner: Coming soon / New episodes), so a skin can show them: one query
+        each for every show in the list."""
+        shows = [e for e in entries if e["kind"] == "tvshow" and e.get("episodes_left") is not None]
+        if not shows:
+            return
+        store = common.store()
+        tmdbs = [e.get("tmdb") for e in shows]
+        counts, dates = store.watched_episode_counts(tmdbs), store.show_air_dates(tmdbs)
+        for entry in shows:
+            key = str(entry.get("tmdb"))
+            entry["watched_percent"] = model.watched_percent(counts.get(key, 0), entry["episodes_left"])
+            ended, last_air, next_air = dates.get(key, (False, "", ""))
+            entry["banner"] = model.show_banner(entry["episodes_left"], last_air, next_air, ended)
 
     @staticmethod
     def _fill_ids(entry):

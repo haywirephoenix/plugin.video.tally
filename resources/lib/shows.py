@@ -4,7 +4,7 @@ from datetime import date
 
 import xbmcgui
 
-from . import common, listing, tmdb, tracking
+from . import common, listing, model, tmdb, tracking
 
 
 def _aired(day):
@@ -67,6 +67,9 @@ def list_seasons(router):
         li.setProperty("TotalEpisodes", str(total))
         li.setProperty("WatchedEpisodes", str(seen))
         li.setProperty("UnWatchedEpisodes", str(max(total - seen, 0)))
+        percent = model.watched_percent(seen, total - seen)
+        if percent is not None:
+            li.setProperty("watchedepisodepercent", str(percent))  # ListItem.PercentPlayed
         li.setProperty("tvshow.tmdb_id", str(tmdb_id))
         art = {
             "poster": tmdb.art_url(season.get("poster") or "", "poster") or poster,

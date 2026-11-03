@@ -88,6 +88,11 @@ MIGRATIONS = [
         summary TEXT NOT NULL DEFAULT '{}'
     );
     """,
+    # 2 -> 3: when the last episode came out and the next is due (cards' Coming soon / New episodes)
+    """
+    ALTER TABLE shows ADD COLUMN last_air_date TEXT NOT NULL DEFAULT '';
+    ALTER TABLE shows ADD COLUMN next_air_date TEXT NOT NULL DEFAULT '';
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -286,6 +291,26 @@ class Store:
         rows = self._rows(sql + " GROUP BY season, episode", args)
         return {(r["season"], r["episode"]): r["n"] for r in rows}
 
+    def show_air_dates(self, tmdbs):
+        """{tmdb: (ended, last_air_date, next_air_date)} for the shows the store has read."""
+        tmdbs = sorted({str(t) for t in tmdbs if t})
+        if not tmdbs:
+            return {}
+        rows = self._rows("SELECT tmdb, ended, last_air_date, next_air_date FROM shows WHERE tmdb IN ({})".format(
+            ", ".join("?" * len(tmdbs))), tmdbs)
+        return {str(r["tmdb"]): (bool(r["ended"]), r["last_air_date"], r["next_air_date"]) for r in rows}
+
+    def watched_episode_counts(self, tmdbs):
+        """{tmdb: episodes watched} for shows (each episode once; specials left out, as the
+        episodes left are counted without them)."""
+        tmdbs = sorted({str(t) for t in tmdbs if t})
+        if not tmdbs:
+            return {}
+        rows = self._rows("SELECT tmdb, COUNT(DISTINCT season * 10000 + episode) AS n FROM plays "
+                          "WHERE kind = 'episode' AND season > 0 AND tmdb IN ({}) GROUP BY tmdb".format(
+                              ", ".join("?" * len(tmdbs))), tmdbs)
+        return {str(r["tmdb"]): r["n"] for r in rows}
+
     # -- resume points ----------------------------------------------------------------
 
     def save_progress(self, kind, tmdb, position, duration=0, season=None, episode=None,
@@ -367,16 +392,18 @@ class Store:
 
     # -- show progress ------------------------------------------------------------------
 
-    def set_show_structure(self, tmdb, seasons, last_aired, ended=False):
-        """Store a show's seasons ([[season, episode count], ...]) and last aired (season, episode)."""
+    def set_show_structure(self, tmdb, seasons, last_aired, ended=False, last_air_date="", next_air_date=""):
+        """Store a show's seasons ([[season, episode count], ...]), last aired (season, episode), and
+        when the last episode came out and the next is due."""
         tmdb = str(tmdb)
 
         def run(conn):
             conn.execute(
-                "INSERT OR REPLACE INTO shows (tmdb, seasons, last_aired, ended, refreshed_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO shows (tmdb, seasons, last_aired, ended, refreshed_at, last_air_date, "
+                "next_air_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (tmdb, json.dumps([[int(s), int(n)] for s, n in seasons]),
-                 json.dumps(list(last_aired)) if last_aired else "", 1 if ended else 0, time.time()))
+                 json.dumps(list(last_aired)) if last_aired else "", 1 if ended else 0, time.time(),
+                 last_air_date or "", next_air_date or ""))
             self._recompute(conn, tmdb)
         self._write(run)
 

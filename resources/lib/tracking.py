@@ -24,7 +24,8 @@ def refresh_show(tmdb_id, refresh=False):
         return False
     store = common.store()
     seasons = [[s["season"], s["episodes"]] for s in info["seasons"]]
-    store.set_show_structure(tmdb_id, seasons, info.get("last_aired"), info.get("ended"))
+    store.set_show_structure(tmdb_id, seasons, info.get("last_aired"), info.get("ended"),
+                             info.get("last_air_date"), info.get("next_air_date"))
     store.update_meta("tv", tmdb_id, {k: info.get(k) for k in ("title", "year", "poster", "imdb", "tvdb")})
     fill_next(tmdb_id)
     return True

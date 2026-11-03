@@ -36,6 +36,34 @@ class NextEpisodeTest(unittest.TestCase):
         self.assertEqual(model.next_episode(set()), (None, None))
 
 
+class WatchedPercentTest(unittest.TestCase):
+    def test_watched_of_aired(self):
+        self.assertEqual(model.watched_percent(3, 9), 25)  # 3 of 12 aired
+        self.assertEqual(model.watched_percent(5, 0), 100)  # all aired watched (more may be announced)
+        self.assertEqual(model.watched_percent(0, 4), 0)
+
+    def test_unknown(self):
+        self.assertIsNone(model.watched_percent(2, None))  # no TMDb data: nothing known to be left
+        self.assertIsNone(model.watched_percent(0, 0))
+
+
+class ShowBannerTest(unittest.TestCase):
+    TODAY = "2026-11-03"
+
+    def test_coming_soon(self):
+        self.assertEqual(model.show_banner(0, "2026-05-01", "2027-02-01", today=self.TODAY), "comingsoon")
+        self.assertIsNone(model.show_banner(0, "2026-05-01", "", today=self.TODAY))  # nothing announced
+        self.assertIsNone(model.show_banner(0, "2026-05-01", "2027-02-01", ended=True, today=self.TODAY))
+
+    def test_new_episodes(self):
+        self.assertEqual(model.show_banner(2, "2026-10-28", "2026-11-10", today=self.TODAY), "newepisodes")
+        self.assertIsNone(model.show_banner(2, "2026-09-01", "", today=self.TODAY))  # out a while
+        self.assertIsNone(model.show_banner(0, "2026-10-28", "", today=self.TODAY))  # watched already
+
+    def test_unknown(self):
+        self.assertIsNone(model.show_banner(None, "2026-10-28", "2027-01-01", today=self.TODAY))
+
+
 class StoreTestCase(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -261,6 +289,19 @@ class ApplyStateTest(StoreTestCase):
                          [(0, 0), (3, 1), (None, None)])
         show = model.apply_state({"kind": "tvshow", "tmdb": "3"}, self.db.states("tv", ["3"])["3"])
         self.assertEqual((show["status"], show["next_season"], show["next_episode"]), (1, 1, 2))
+
+
+class WatchedCountsTest(StoreTestCase):
+    def test_each_episode_once_without_specials(self):
+        self.db.add_plays("1399", [(1, 1), (1, 2), (0, 1)])
+        self.db.add_play("episode", "1399", 1, 1)  # watched again
+        self.db.add_plays("2316", [(2, 3)])
+        self.assertEqual(self.db.watched_episode_counts(["1399", "2316", "99"]), {"1399": 2, "2316": 1})
+        self.assertEqual(self.db.watched_episode_counts([]), {})
+
+    def test_air_dates(self):
+        self.db.set_show_structure("1399", [[1, 10]], [1, 10], False, "2026-10-28", "2027-01-05")
+        self.assertEqual(self.db.show_air_dates(["1399", "99"]), {"1399": (False, "2026-10-28", "2027-01-05")})
 
 
 if __name__ == "__main__":

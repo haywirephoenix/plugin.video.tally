@@ -109,11 +109,26 @@ def next_up(with_movies=False):
     return fetch
 
 
+def coming_back(rows):
+    """The finished shows among rows (store titles) with another episode announced and still to
+    come (model.show_banner's Coming soon): caught up, but not done with."""
+    dates = _store().show_air_dates(r["tmdb"] for r in rows)
+    out = []
+    for row in rows:
+        ended, _, next_air = dates.get(str(row["tmdb"]), (True, "", ""))
+        if model.show_banner(0, "", next_air, ended) == "comingsoon":
+            out.append(row)
+    return out
+
+
 def in_progress_all():
+    """Movies and shows part-way through, and shows caught up with an episode on its way (they
+    carry a Coming soon banner: coming_back), last watched first."""
     def fetch(page, size):
         count = (page + 1) * size + 1
         pool = _store().titles("movie", [S.STATUS_IN_PROGRESS], limit=count)
         pool += _store().titles("tv", [S.STATUS_IN_PROGRESS], limit=count)
+        pool += coming_back(_store().titles("tv", [S.STATUS_COMPLETED], limit=1000))
         pool.sort(key=lambda r: r.get("activity_at") or 0, reverse=True)
         entries = [model.from_title(r) for r in pool]
         start = page * size
@@ -178,7 +193,8 @@ CATEGORIES = {
     "continue_watching": ("Continue Watching", MIXED, resume(["movie", "episode"]),
                           "Movies and episodes you stopped part-way through.", True),
     "all_in_progress": ("In Progress", MIXED, in_progress_all(),
-                        "Movies and shows you're part-way through, last watched first.", False),
+                        "Movies and shows you're part-way through, and shows you've caught up on with "
+                        "an episode on its way, last watched first.", False),
     "all_next_up": ("Next Up", MIXED, next_up(with_movies=True),
                     "The next episode of every show, plus movies in progress, last watched first.", False),
     # Movies

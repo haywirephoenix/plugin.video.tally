@@ -487,7 +487,8 @@ LISTS = {
 
 def show_info(tmdb_id, refresh=False):
     """A show's seasons and airing state, cached a day: {title, poster, fanart, imdb, tvdb, ended,
-    seasons: [{season, name, episodes, poster, premiered}], last_aired: [season, episode] or None}.
+    seasons: [{season, name, episodes, poster, premiered}], last_aired: [season, episode] or None,
+    last_air_date / next_air_date: the last episode out's and the next announced one's (or "")}.
 
     ``refresh`` asks TMDb again whatever is cached (the service, once a day per watched show).
     Returns None when TMDb can't be asked.
@@ -514,6 +515,8 @@ def show_info(tmdb_id, refresh=False):
         "imdb": external.get("imdb_id") or "",
         "tvdb": str(external.get("tvdb_id") or ""),
         "ended": (data.get("status") or "") in ("Ended", "Canceled"),
+        "last_air_date": last.get("air_date") or "",
+        "next_air_date": (data.get("next_episode_to_air") or {}).get("air_date") or "",
         "last_aired": [last["season_number"], last["episode_number"]]
         if last.get("season_number") is not None and last.get("episode_number") is not None else None,
         "seasons": [

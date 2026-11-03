@@ -66,6 +66,40 @@ def next_episode(watched, seasons=None, last_aired=None):
     return None, left
 
 
+NEW_DAYS = 14  # an episode out this many days or fewer is new
+
+
+def show_banner(episodes_left, latest_air, next_air, ended=False, today=None):
+    """What a tracked show's card can say (its item property, set "true"): "comingsoon" when every
+    episode out is watched and another is announced with a date to come; "newepisodes" when there
+    are episodes left to watch and the latest out came in the last NEW_DAYS days; else None.
+    Dates are YYYY-MM-DD."""
+    from datetime import date, timedelta
+    today = today or date.today().isoformat()
+    try:
+        left = int(episodes_left)
+    except (TypeError, ValueError):
+        return None
+    if left == 0 and next_air and next_air[:10] > today and not ended:
+        return "comingsoon"
+    since = (date.fromisoformat(today) - timedelta(days=NEW_DAYS)).isoformat()
+    if left > 0 and latest_air and since <= latest_air[:10] <= today:
+        return "newepisodes"
+    return None
+
+
+def watched_percent(watched, left):
+    """A show's or season's episodes watched out of those aired, as Kodi's library gives it
+    (the watchedepisodepercent property, which ListItem.PercentPlayed reads for a folder), or
+    None when nothing is known. Episodes announced but not out yet don't count."""
+    try:
+        watched, left = int(watched or 0), int(left)
+    except (TypeError, ValueError):
+        return None
+    total = watched + max(left, 0)
+    return int(100 * watched / total) if total else None
+
+
 # -- entries -----------------------------------------------------------------------
 
 def from_title(row):
