@@ -227,12 +227,23 @@ class Store:
 
     def _migrate(self):
         with self._lock:
-            version = self._conn.execute("PRAGMA user_version").fetchone()[0]
-            for target in range(version, SCHEMA_VERSION):
-                # executescript commits first; the version bump goes with the migration's own
-                # statements, and its hook's, all or nothing.
-                self._conn.executescript("BEGIN;\n{}".format(MIGRATIONS[target]))
+            if self._conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+                return
+            while True:
+                # Each migration with its hook and the version bump, all or nothing; BEGIN
+                # IMMEDIATE takes the write lock before the version is read, so of several
+                # processes opening the store at once (widgets) one migrates and the others wait
+                # for it, then find it done. (executescript would commit first: statements one
+                # by one; migrations have no ; inside a statement.)
+                self._conn.execute("BEGIN IMMEDIATE")
+                target = self._conn.execute("PRAGMA user_version").fetchone()[0]
+                if target >= SCHEMA_VERSION:
+                    self._conn.rollback()
+                    return
                 try:
+                    for statement in MIGRATIONS[target].split(";"):
+                        if statement.strip():
+                            self._conn.execute(statement)
                     if target in MIGRATION_HOOKS:
                         getattr(self, MIGRATION_HOOKS[target])(self._conn)
                     self._conn.execute("PRAGMA user_version = {}".format(target + 1))

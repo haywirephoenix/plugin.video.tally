@@ -242,6 +242,58 @@ msgctxt "#30505"
 msgid "Show widget paths"
 msgstr ""
 
+msgctxt "#30700"
+msgid "Sync"
+msgstr ""
+
+msgctxt "#30701"
+msgid "Sync with other devices"
+msgstr ""
+
+msgctxt "#30702"
+msgid "Keep watched status, resume points and the watchlist the same on your Kodi devices at home, with no server: each paired device sends the others what changed. Every device keeps everything, so any of them can be switched off or removed."
+msgstr ""
+
+msgctxt "#30703"
+msgid "This device's name"
+msgstr ""
+
+msgctxt "#30704"
+msgid "What the other devices call this one. Empty: Kodi's device name (Settings, Services, General)."
+msgstr ""
+
+msgctxt "#30705"
+msgid "Pair a device"
+msgstr ""
+
+msgctxt "#30706"
+msgid "Show a code here and enter it on the other device, or enter the code another device shows. Both need Sync on."
+msgstr ""
+
+msgctxt "#30707"
+msgid "Paired devices"
+msgstr ""
+
+msgctxt "#30708"
+msgid "The devices this one syncs with and when they last synced. Choose one to sync it now or remove it: a removed device can't sync with this one again until it is paired again."
+msgstr ""
+
+msgctxt "#30709"
+msgid "Sync now"
+msgstr ""
+
+msgctxt "#30710"
+msgid "Get every paired device's changes now (this happens every 5 minutes, and within seconds of a change on a device that can reach this one)."
+msgstr ""
+
+msgctxt "#30711"
+msgid "Port"
+msgstr ""
+
+msgctxt "#30712"
+msgid "The port other devices reach this one on (default 52401). Devices find each other on port 52402."
+msgstr ""
+
 msgctxt "#30600"
 msgid "Images"
 msgstr ""

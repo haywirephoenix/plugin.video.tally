@@ -554,6 +554,18 @@ class Router:
         from . import import_ui
         import_ui.run(self)
 
+    def sync_pair(self):
+        from . import sync_ui
+        sync_ui.pair(self)
+
+    def sync_devices(self):
+        from . import sync_ui
+        sync_ui.devices(self)
+
+    def sync_now(self):
+        from . import sync_ui
+        sync_ui.now(self)
+
     def settings(self):
         common.addon().openSettings()
 

@@ -8,6 +8,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -96,6 +97,33 @@ class LogTest(SyncTestCase):
         self.assertEqual(self.tv.playcount("episode", "1396", 1, 1), 1)
         self.assertEqual(self.tv.get_progress("episode", "1396", 1, 2), (600, 2800))
         self.assertEqual(self.tv.get("tv", "1396")["status"], store.STATUS_IN_PROGRESS)
+
+
+    def test_migrated_once_when_opened_at_once(self):
+        # Widgets open the store in several processes at once after an update.
+        path = os.path.join(self.dir.name, "busy.db")
+        conn = sqlite3.connect(path)
+        conn.execute("PRAGMA journal_mode=WAL")  # as a store's always is once opened
+        for sql in store.MIGRATIONS[:3]:
+            conn.executescript(sql)
+        conn.executescript("PRAGMA user_version = 3;" + "".join(
+            "INSERT INTO plays (kind, tmdb, watched_at) VALUES ('movie', '{}', 10);".format(i) for i in range(300)))
+        conn.close()
+        errors, opened = [], []
+
+        def open_it():
+            try:
+                opened.append(Store(path))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+        threads = [threading.Thread(target=open_it) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.stores.extend(opened)
+        self.assertEqual((errors, len(opened)), ([], 6))
+        self.assertEqual(opened[0].last_change(), 300)
 
 
 class PlaysTest(SyncTestCase):
