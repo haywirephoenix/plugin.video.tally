@@ -437,3 +437,59 @@ def apply(store, records, resolve=None, structure=None, now=None):
     counts.update(added)
     counts["titles"] = len(titles)
     return counts
+
+
+# -- trying an import first ---------------------------------------------------------------
+
+STATUS_NAMES = {model.STATUS_PLANNING: "watchlist", model.STATUS_IN_PROGRESS: "in progress",
+                model.STATUS_COMPLETED: "watched"}
+
+
+def _state(store):
+    titles = {(k, r["tmdb"]): r["status"] for k in ("movie", "tv") for r in store.titles(k, limit=1000000)}
+    plays = {(k, r["tmdb"], r["season"], r["episode"]): r["plays"]
+             for k in ("movie", "episode") for r in store.play_counts(k)}
+    resume = {(r["kind"], r["tmdb"], r["season"], r["episode"]): (r["position"], r["duration"])
+              for r in store.resume_list(limit=1000000)}
+    return titles, plays, resume
+
+
+def preview(store, records, resolve=None, structure=None, now=None):
+    """What importing records would do, worked out on a copy of the store (store.copy): the
+    store itself is not changed. Returns (counts, as apply's, and details): details are lists
+    of what would change, each sorted by its label:
+        titles  [(label, "watchlist" / "in progress" / "watched", was or None)]
+        plays   [(label, plays added)]           movies and episodes ("Show S01E02")
+        resume  [(label, position, duration)]
+        unmatched [label]                       entries with no TMDb id that couldn't be matched
+    """
+    copy = store.copy()
+    try:
+        before = _state(copy)
+        unmatched = []
+
+        def matched(kind, imdb, tvdb, title, year):
+            found = resolve(kind, imdb, tvdb, title, year) if resolve else ""
+            if not found:
+                unmatched.append("{} ({})".format(title, year) if title and year else title or imdb or tvdb or "?")
+            return found
+        counts = apply(copy, records, resolve=matched, structure=structure, now=now)
+        after = _state(copy)
+        names = copy.names()
+    finally:
+        copy.close()
+
+    def label(kind, tmdb, season=-1, episode=-1):
+        title_kind = "movie" if kind == "movie" else "tv"
+        name = names.get((title_kind, tmdb)) or "TMDb {}".format(tmdb)
+        return name if kind in ("movie", "tv") else "{} S{:02d}E{:02d}".format(name, season, episode)
+
+    titles = [(label(kind, tmdb), STATUS_NAMES.get(status, "?"), STATUS_NAMES.get(before[0].get((kind, tmdb))))
+              for (kind, tmdb), status in after[0].items() if before[0].get((kind, tmdb)) != status]
+    plays = [(label(*key), count - before[1].get(key, 0)) for key, count in after[1].items()
+             if count > before[1].get(key, 0)]
+    resume = [(label(*key), position, duration) for key, (position, duration) in after[2].items()
+              if before[2].get(key) != (position, duration)]
+    details = {"titles": sorted(titles), "plays": sorted(plays), "resume": sorted(resume),
+               "unmatched": sorted(set(unmatched))}
+    return counts, details

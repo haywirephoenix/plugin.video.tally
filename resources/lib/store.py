@@ -225,6 +225,17 @@ class Store:
         with self._lock:
             self._conn.close()
 
+    def copy(self):
+        """An in-memory copy of the store, to change without changing this one (Test import)."""
+        other = Store(":memory:")
+        with self._lock:
+            self._conn.backup(other._conn)
+        return other
+
+    def names(self):
+        """{(kind, tmdb): title} of every title the store knows, tracked or not."""
+        return {(r["kind"], r["tmdb"]): r["title"] for r in self._rows("SELECT kind, tmdb, title FROM media")}
+
     def _migrate(self):
         with self._lock:
             if self._conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:

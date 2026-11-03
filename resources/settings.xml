@@ -223,6 +223,16 @@
                         <heading>30262</heading>
                     </control>
                 </setting>
+                <setting id="import_test" type="action" label="30264" help="30265">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=import_history&amp;test=1)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
                 <setting id="import_history" type="action" label="30260" help="30261">
                     <level>0</level>
                     <data>RunPlugin(plugin://plugin.video.tally/?action=import_history)</data>

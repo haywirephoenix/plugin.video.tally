@@ -190,6 +190,14 @@ msgctxt "#30263"
 msgid "The http(s) address of an export to import, offered when you choose Import watch history > A URL. Kept from the last URL import."
 msgstr ""
 
+msgctxt "#30264"
+msgid "Test import"
+msgstr ""
+
+msgctxt "#30265"
+msgid "Try an export without changing anything: it is imported into a copy of Tally's data, and a report lists the titles, plays and resume points it would add, and the entries it couldn't match on TMDb."
+msgstr ""
+
 msgctxt "#30400"
 msgid "Lists"
 msgstr ""

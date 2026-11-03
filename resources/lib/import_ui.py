@@ -1,4 +1,6 @@
-"""The Import route: choose an export, match it to an importer definition, merge it into the store."""
+"""The Import route: choose an export, match it to an importer definition, merge it into the store.
+With test=1 (Test import) it is merged into a copy of the store instead, and what would change is
+shown: nothing is saved."""
 
 import os
 import urllib.parse
@@ -10,6 +12,7 @@ import xbmcvfs
 from . import common, importers, tmdb
 
 MAX_DOWNLOAD = 64 * 1024 * 1024
+REPORT_LINES = 300  # per section of a Test import's report
 
 
 def _folders():
@@ -97,14 +100,15 @@ def run(router):
             return
         choices = [choices[picked]]
     importer = choices[0]
+    test = router.params.get("test") == "1"
     if not tmdb.enabled() and not dialog.yesno(
             common.ADDON_NAME, "There is no TMDb key in Tally settings, so titles without a TMDb id "
-            "and whole shows marked watched can't be imported.\n\nImport anyway?",
-            nolabel="Cancel", yeslabel="Import"):
+            "and whole shows marked watched can't be imported.\n\n{} anyway?".format("Test" if test else "Import"),
+            nolabel="Cancel", yeslabel="Test" if test else "Import"):
         return
 
     progress = xbmcgui.DialogProgressBG()
-    progress.create(common.ADDON_NAME, "Importing from {}".format(importer.name))
+    progress.create(common.ADDON_NAME, "{} from {}".format("Testing an import" if test else "Importing", importer.name))
     looked_up = [0]
 
     def resolve(*args):
@@ -116,18 +120,54 @@ def run(router):
     try:
         records = list(importer.records(text))
         progress.update(20, message="{} entries read".format(len(records)))
-        counts = importers.apply(common.store(), records,
-                                 resolve=resolve if tmdb.enabled() else None,
-                                 structure=_structure if tmdb.enabled() else None)
+        options = dict(resolve=resolve if tmdb.enabled() else None, structure=_structure if tmdb.enabled() else None)
+        if test:
+            counts, details = importers.preview(common.store(), records, **options)
+        else:
+            counts = importers.apply(common.store(), records, **options)
     except Exception as exc:  # noqa: BLE001 - shown to the user, then logged
         progress.close()
         common.log("Import from {} failed: {}".format(importer.name, exc))
         dialog.ok(common.ADDON_NAME, "The import failed: {}".format(exc))
         return
     progress.close()
+    if test:
+        dialog.textviewer("Test import from {}".format(importer.name), report(counts, details))
+        return
     common.store().log_import(importer.id, path, counts)
     common.home_property("tally.refresh_shows", "1")  # the service reads the shows' seasons next
     common.bump_widget_reload()
     dialog.ok(common.ADDON_NAME, "Imported from {}: {} titles, {} plays, {} resume points.{}".format(
         importer.name, counts["titles_added"], counts["plays_added"], counts["progress_added"],
         "\n{} entries had no TMDb match.".format(counts["unmatched"]) if counts["unmatched"] else ""))
+
+
+def _time(seconds):
+    minutes, secs = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return "{}:{:02d}:{:02d}".format(hours, minutes, secs) if hours else "{}:{:02d}".format(minutes, secs)
+
+
+def report(counts, details):
+    """A Test import's report (importers.preview): the totals, then each change."""
+    lines = ["Nothing was changed. Importing this export would add:",
+             "{} titles, {} plays, {} resume points.".format(
+                 counts["titles_added"], counts["plays_added"], counts["progress_added"]),
+             "{} entries read{}{}.".format(
+                 counts["rows"], ", {} skipped".format(counts["skipped"]) if counts["skipped"] else "",
+                 ", {} with no TMDb match".format(counts["unmatched"]) if counts["unmatched"] else "")]
+    sections = (
+        ("Titles", details["titles"],
+         lambda t: "{}: {}".format(t[0], t[1]) + (" (now {})".format(t[2]) if t[2] else "")),
+        ("Plays", details["plays"], lambda p: p[0] + (" ({} plays)".format(p[1]) if p[1] > 1 else "")),
+        ("Resume points", details["resume"],
+         lambda r: "{}: {}{}".format(r[0], _time(r[1]), " of {}".format(_time(r[2])) if r[2] else "")),
+        ("No TMDb match: not imported", details["unmatched"], lambda u: u))
+    for title, entries, line in sections:
+        if not entries:
+            continue
+        lines += ["", "[B]{} ({})[/B]".format(title, len(entries))]
+        lines += [line(entry) for entry in entries[:REPORT_LINES]]
+        if len(entries) > REPORT_LINES:
+            lines.append("... and {} more".format(len(entries) - REPORT_LINES))
+    return "\n".join(lines)

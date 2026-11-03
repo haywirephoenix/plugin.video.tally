@@ -10,6 +10,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -67,7 +68,7 @@ WATCHED_SHOWS = [
 RATINGS = [{"rated_at": "2024-05-02T10:00:00.000Z", "rating": 10, "type": "movie", "movie": DUNE}]  # not imported
 
 
-class TraktTest(unittest.TestCase):
+class TraktTestCase(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.db = Store(os.path.join(self.dir.name, "tally.db"))
@@ -99,6 +100,8 @@ class TraktTest(unittest.TestCase):
         self.assertEqual((show["title"], show["status"]), ("Breaking Bad", store.STATUS_IN_PROGRESS))
         self.assertEqual(counts["unmatched"], 0)
 
+
+class TraktTest(TraktTestCase):
     def test_detected(self):
         text = json.dumps(HISTORY)
         self.assertEqual([k for k, imp in self.found.items() if imp.detects(text)], ["trakt"])
@@ -142,6 +145,41 @@ class TraktTest(unittest.TestCase):
         importers.apply(self.db, self.trakt.records(text), resolve=resolve)
         self.assertEqual(lookups, [("movie", "tt0133093", "The Matrix", 1999)])
         self.assertEqual(self.db.playcount("movie", "603"), 1)
+
+
+class PreviewTest(TraktTestCase):
+    """Test import: what an import would do, on a copy; the store itself unchanged."""
+
+    def test_nothing_changed_and_same_as_importing(self):
+        self.db.add_play("movie", "603", when=1714593600)  # the history's Matrix watch, already here
+        self.db.add_watchlist("tv", "1396", {"title": "Breaking Bad"})
+        state = (self.db.last_change(), importers._state(self.db))
+        unknown = dict(DUNE, title="Unknown Film", ids={"trakt": 1})  # no ids to match
+        records = list(self.trakt.records(json.dumps(dict(self.everything(), extra=[
+            {"id": 9, "watched_at": "2024-01-01T00:00:00.000Z", "action": "watch", "type": "movie", "movie": unknown}]))))
+        counts, details = importers.preview(self.db, records, now=1000)
+        self.assertEqual((self.db.last_change(), importers._state(self.db)), state)
+
+        self.assertEqual(details["unmatched"], ["Unknown Film (2021)"])
+        self.assertEqual(details["plays"], [("Breaking Bad S01E01", 1), ("Breaking Bad S01E02", 1),
+                                            ("Breaking Bad S01E04", 1)])  # the Matrix watch is here already
+        self.assertIn(("Breaking Bad", "in progress", "watchlist"), details["titles"])
+        self.assertIn(("Dune", "watchlist", None), details["titles"])
+        self.assertIn(("Heat", 3060.0, 10200.0), details["resume"])
+        real = importers.apply(self.db, records, now=1000)
+        self.assertEqual({k: counts[k] for k in ("titles_added", "plays_added", "progress_added")},
+                         {k: real[k] for k in ("titles_added", "plays_added", "progress_added")})
+
+    def test_report(self):
+        for name in ("xbmc", "xbmcaddon", "xbmcgui", "xbmcplugin", "xbmcvfs"):
+            sys.modules.setdefault(name, mock.MagicMock())
+        from resources.lib import import_ui
+        counts, details = importers.preview(self.db, list(self.trakt.records(json.dumps(self.everything()))))
+        text = import_ui.report(counts, details)
+        self.assertTrue(text.startswith("Nothing was changed."))
+        self.assertIn("[B]Plays (4)[/B]", text)
+        self.assertIn("Heat: 51:00 of 2:50:00", text)
+        self.assertIn("Dune: watchlist", text)
 
 
 class JsonFormatTest(unittest.TestCase):
