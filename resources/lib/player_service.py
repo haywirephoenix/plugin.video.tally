@@ -7,6 +7,7 @@ as a play. Store writes run on a worker thread so the player callbacks never wai
 """
 
 import json
+import os
 import queue
 import threading
 import time
@@ -22,6 +23,7 @@ PROP_TMDBHELPER_PLAYING = "TMDbHelper.PlayerInfoString"  # set by TMDb Helper's 
 PROP_REFRESH_SHOWS = "tally.refresh_shows"  # set by the plugin's Refresh widgets
 SHOW_REFRESH_AGE = 24 * 3600  # a watched show's seasons are re-read from TMDb this often
 UPKEEP_EVERY = 3600
+VERSION_FILE = "version"  # in the profile: the version the service last ran as (updated)
 
 
 def completed_ratio():
@@ -347,8 +349,9 @@ class Upkeep:
                 common.log("Upkeep failed: {}".format(exc), xbmc.LOGWARNING)
 
     def cycle(self):
-        # Leave the network to the video while one is playing.
-        if self._player.isPlayingVideo() or common.background_trailer():
+        # Leave the network to the video while one is playing; a skin's background trailer is
+        # no reason to wait (a TV left on its Home page would never refresh).
+        if self._player.isPlayingVideo() and not common.background_trailer():
             return
         changed = False
         forced = common.home_property(PROP_REFRESH_SHOWS) == "1"
@@ -382,7 +385,33 @@ class Upkeep:
         return before != after
 
 
+def updated():
+    """Once after Tally is updated (VERSION_FILE holds the version it last ran as): its lists may
+    carry more now (a show's watched progress, its banner) and need what its shows' refresh
+    stores (their air dates), so the shows are refreshed at once rather than within a day, and
+    the widgets reload (a skin keeps the items it listed until then)."""
+    version = common.ADDON.getAddonInfo("version")
+    path = os.path.join(common.ensure_profile_dir(), VERSION_FILE)
+    try:
+        with open(path, encoding="utf-8") as f:
+            last = f.read().strip()
+    except OSError:
+        last = ""
+    if last == version:
+        return
+    common.log("Updated from {} to {}: refreshing shows and widgets".format(last or "an older version", version),
+               xbmc.LOGINFO)
+    common.home_property(PROP_REFRESH_SHOWS, "1")
+    common.bump_widget_reload()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(version)
+    except OSError as exc:
+        common.log("Could not save the version: {}".format(exc), xbmc.LOGWARNING)
+
+
 def run():
+    updated()
     monitor = xbmc.Monitor()
     player = TallyPlayer()
     upkeep = Upkeep(player)
