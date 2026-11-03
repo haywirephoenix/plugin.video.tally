@@ -7,12 +7,22 @@ so later features (recommendations) add their tables with a new entry.
 Identity is TMDb: movies by their id, shows and their episodes by the show's id.
 ``kind`` is "movie" or "tv" for titles; plays and resume points use "movie" or "episode".
 Movies have season = episode = -1 in tables keyed on them, so the keys have no NULLs.
+
+Sync: every change to what is watched or listed is made as an op (a name and its JSON data:
+OPS) and kept in the changes log, in the same transaction. Paired devices pull each other's log
+(changes) and apply what is new to them (apply_changes), keeping it in their own log under its
+first uid so it reaches the devices they are paired with too. Applying an op is idempotent and
+order-independent: plays keep their uid, a resume point keeps the newest, and a removal leaves
+its time in the removed table, so nothing older it removed comes back from a peer. The shows
+table is each device's own TMDb cache and is not synced; titles' status and next episode follow
+from the plays.
 """
 
 import json
 import sqlite3
 import threading
 import time
+import uuid
 
 from . import model
 
@@ -93,8 +103,53 @@ MIGRATIONS = [
     ALTER TABLE shows ADD COLUMN last_air_date TEXT NOT NULL DEFAULT '';
     ALTER TABLE shows ADD COLUMN next_air_date TEXT NOT NULL DEFAULT '';
     """,
+    # 3 -> 4: sync. Each play gets a uid; the changes log (seq: this device's order, a peer's
+    # cursor), removals' times, and this device's id. The log is seeded with what is stored
+    # (_seed_changes), so a peer's first sync gets the whole history.
+    """
+    ALTER TABLE plays ADD COLUMN uid TEXT;
+    UPDATE plays SET uid = lower(hex(randomblob(16)));
+    CREATE UNIQUE INDEX plays_uid ON plays (uid);
+    CREATE TABLE changes (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid TEXT NOT NULL UNIQUE,
+        op TEXT NOT NULL,
+        data TEXT NOT NULL,
+        at REAL NOT NULL,
+        item TEXT
+    );
+    CREATE INDEX changes_item ON changes (op, item);
+    CREATE TABLE removed (
+        scope TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        tmdb TEXT NOT NULL,
+        season INTEGER NOT NULL DEFAULT -1,
+        episode INTEGER NOT NULL DEFAULT -1,
+        removed_at REAL NOT NULL,
+        PRIMARY KEY (scope, kind, tmdb, season, episode)
+    );
+    CREATE TABLE sync (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    INSERT INTO sync (key, value) VALUES ('device', lower(hex(randomblob(8))));
+    """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
+# Migrations followed by a Store method, in the same transaction: {from version: method name}
+MIGRATION_HOOKS = {3: "_seed_changes"}
+
+# Ops (OPS: the changes log's op names) and their data. kind is a title's ("movie"/"tv") for
+# title, unlist and forget, a play's ("movie"/"episode") for the rest; season/episode -1 for movies.
+#   title     {kind, tmdb, meta, added_at}: on the watchlist (unless removed since added_at)
+#   unlist    {kind, tmdb, at}: off the watchlist
+#   play      {uid, kind, tmdb, season, episode, watched_at, meta}
+#   unplay    {kind, tmdb, season, episode, at}: plays up to at removed (mark unwatched)
+#   progress  {kind, tmdb, season, episode, position, duration, title, updated_at, meta}
+#   unprogress {kind, tmdb, season, episode, at}: a resume point up to at removed
+#   forget    {kind, tmdb, at}: a title's plays and resume points up to at, and the title
+OPS = ("title", "unlist", "play", "unplay", "progress", "unprogress", "forget")
+META_FIELDS = ("imdb", "tvdb", "title", "year", "poster")
 
 # An imported play this close to one already stored is the same play (an import run twice).
 SAME_PLAY = 60
@@ -112,15 +167,47 @@ def _title_kind(kind):
     return "movie" if kind == "movie" else "tv"
 
 
+def _item(kind, tmdb, season=None, episode=None):
+    """An op's movie or episode: {kind, tmdb, season, episode}, a movie's season/episode -1."""
+    kind = _play_kind(kind)
+    season, episode = _key(season, episode) if kind == "episode" else (-1, -1)
+    return {"kind": kind, "tmdb": str(tmdb), "season": season, "episode": episode}
+
+
+def _play(kind, tmdb, season, episode, watched_at, meta=None):
+    return dict(_item(kind, tmdb, season, episode), uid=uuid.uuid4().hex, watched_at=watched_at, meta=meta or {})
+
+
+def _progress(kind, tmdb, season, episode, position, duration, title, updated_at, meta=None):
+    return dict(_item(kind, tmdb, season, episode), position=float(position), duration=float(duration or 0),
+                title=title or "", updated_at=updated_at, meta=meta or {})
+
+
+def _where(item):
+    """A WHERE clause and its args for an op's movie or episode, in plays or progress."""
+    return ("kind = ? AND tmdb = ? AND season = ? AND episode = ?",
+            (item["kind"], item["tmdb"], item["season"], item["episode"]))
+
+
 class Store:
     def __init__(self, path):
         self._lock = threading.RLock()
+        self._last = 0
         self._conn = sqlite3.connect(path, timeout=10, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         if path != ":memory:":
             self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._migrate()
+
+    def _now(self):
+        """The time of a change made here: later than the last one's, even within one clock tick
+        (a resume point saved right after a play is newer than it), and than every change a peer
+        sent (apply_changes): what is done here after seeing one wins over it, whatever the two
+        clocks say."""
+        with self._lock:
+            self._last = max(time.time(), self._last + 0.001)
+            return self._last
 
     def close(self):
         with self._lock:
@@ -130,9 +217,17 @@ class Store:
         with self._lock:
             version = self._conn.execute("PRAGMA user_version").fetchone()[0]
             for target in range(version, SCHEMA_VERSION):
-                # executescript commits first; the version bump goes with the migration's own statements.
-                self._conn.executescript(
-                    "BEGIN;\n{}\nPRAGMA user_version = {};\nCOMMIT;".format(MIGRATIONS[target], target + 1))
+                # executescript commits first; the version bump goes with the migration's own
+                # statements, and its hook's, all or nothing.
+                self._conn.executescript("BEGIN;\n{}".format(MIGRATIONS[target]))
+                try:
+                    if target in MIGRATION_HOOKS:
+                        getattr(self, MIGRATION_HOOKS[target])(self._conn)
+                    self._conn.execute("PRAGMA user_version = {}".format(target + 1))
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
 
     @property
     def version(self):
@@ -183,97 +278,31 @@ class Store:
 
     def add_watchlist(self, kind, tmdb, meta=None):
         """Put an untracked title on the watchlist. False when it is already tracked."""
-        kind = _title_kind(kind)
-        now = time.time()
-
-        def run(conn):
-            self._ensure(conn, kind, tmdb, meta, now)
-            cur = conn.execute("UPDATE media SET status = ?, added_at = ? "
-                               "WHERE kind = ? AND tmdb = ? AND status IS NULL",
-                               (STATUS_PLANNING, now, kind, str(tmdb)))
-            return cur.rowcount > 0
-        return self._write(run)
+        return self._change("title", {"kind": _title_kind(kind), "tmdb": str(tmdb), "meta": meta or {},
+                                      "added_at": self._now()})
 
     def remove_watchlist(self, kind, tmdb):
         """Take a title off the watchlist; only one with nothing watched (status Planning)."""
-        cur = self._write(lambda c: c.execute(
-            "UPDATE media SET status = NULL WHERE kind = ? AND tmdb = ? AND status = ?",
-            (_title_kind(kind), str(tmdb), STATUS_PLANNING)))
-        return cur.rowcount > 0
+        return self._change("unlist", {"kind": _title_kind(kind), "tmdb": str(tmdb), "at": self._now()})
 
     def untrack(self, kind, tmdb):
         """Forget a title: its status, plays and resume points."""
-        kind, tmdb = _title_kind(kind), str(tmdb)
-
-        def run(conn):
-            conn.execute("DELETE FROM media WHERE kind = ? AND tmdb = ?", (kind, tmdb))
-            conn.execute("DELETE FROM plays WHERE kind = ? AND tmdb = ?", (_play_kind(kind), tmdb))
-            conn.execute("DELETE FROM progress WHERE kind = ? AND tmdb = ?", (_play_kind(kind), tmdb))
-            if kind == "tv":
-                conn.execute("DELETE FROM shows WHERE tmdb = ?", (tmdb,))
-        self._write(run)
+        self._change("forget", {"kind": _title_kind(kind), "tmdb": str(tmdb), "at": self._now()})
 
     # -- plays --------------------------------------------------------------------------
 
     def add_play(self, kind, tmdb, season=None, episode=None, meta=None, when=None):
         """Record a finished play of a movie or episode; it also clears its resume point."""
-        play_kind = _play_kind(kind)
-        title_kind = _title_kind(kind)
-        tmdb = str(tmdb)
-        season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
-        now = when or time.time()
-
-        def run(conn):
-            self._ensure(conn, title_kind, tmdb, meta, now)
-            conn.execute("INSERT INTO plays (kind, tmdb, season, episode, watched_at) VALUES (?, ?, ?, ?, ?)",
-                         (play_kind, tmdb, season, episode, now))
-            conn.execute("DELETE FROM progress WHERE kind = ? AND tmdb = ? AND season = ? AND episode = ?",
-                         (play_kind, tmdb, season, episode))
-            conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = ? AND tmdb = ?",
-                         (now, title_kind, tmdb))
-            if title_kind == "movie":
-                conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ?",
-                             (STATUS_COMPLETED, tmdb))
-            else:
-                self._recompute(conn, tmdb)
-        self._write(run)
+        self._change("play", _play(kind, tmdb, season, episode, when or self._now(), meta))
 
     def add_plays(self, tmdb, episodes, meta=None):
         """Mark many episodes of a show watched at once (season/show "mark watched")."""
-        now = time.time()
-        tmdb = str(tmdb)
-
-        def run(conn):
-            self._ensure(conn, "tv", tmdb, meta, now)
-            for season, episode in episodes:
-                conn.execute("INSERT INTO plays (kind, tmdb, season, episode, watched_at) "
-                             "VALUES ('episode', ?, ?, ?, ?)", (tmdb, int(season), int(episode), now))
-                conn.execute("DELETE FROM progress WHERE kind = 'episode' AND tmdb = ? "
-                             "AND season = ? AND episode = ?", (tmdb, int(season), int(episode)))
-            conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = 'tv' AND tmdb = ?",
-                         (now, tmdb))
-            self._recompute(conn, tmdb)
-        self._write(run)
+        now = self._now()
+        self._changes([("play", _play("episode", tmdb, season, episode, now, meta)) for season, episode in episodes])
 
     def remove_play(self, kind, tmdb, season=None, episode=None):
         """Remove every play of a movie or episode (mark unwatched)."""
-        play_kind = _play_kind(kind)
-        tmdb = str(tmdb)
-        season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
-
-        def run(conn):
-            cur = conn.execute("DELETE FROM plays WHERE kind = ? AND tmdb = ? AND season = ? AND episode = ?",
-                               (play_kind, tmdb, season, episode))
-            if play_kind == "movie":
-                left = conn.execute("SELECT 1 FROM progress WHERE kind = 'movie' AND tmdb = ?",
-                                    (tmdb,)).fetchone()
-                conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ? "
-                             "AND status = ?", (STATUS_IN_PROGRESS if left else STATUS_PLANNING,
-                                                tmdb, STATUS_COMPLETED))
-            else:
-                self._recompute(conn, tmdb)
-            return cur.rowcount
-        return self._write(run)
+        return self._change("unplay", dict(_item(kind, tmdb, season, episode), at=self._now()))
 
     def playcount(self, kind, tmdb, season=None, episode=None):
         season, episode = _key(season, episode) if _play_kind(kind) == "episode" else (-1, -1)
@@ -316,35 +345,13 @@ class Store:
     def save_progress(self, kind, tmdb, position, duration=0, season=None, episode=None,
                       title="", meta=None):
         """Save a resume point. Under MIN_POSITION nothing is kept; past FINISHED it counts as a play."""
-        play_kind = _play_kind(kind)
         if duration and position >= duration * FINISHED:
             self.add_play(kind, tmdb, season, episode, meta=meta)
             return "played"
         if position < MIN_POSITION:
             return None
-        title_kind = _title_kind(kind)
-        tmdb = str(tmdb)
-        season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
-        now = time.time()
-
-        def run(conn):
-            self._ensure(conn, title_kind, tmdb, meta, now)
-            conn.execute(
-                "INSERT OR REPLACE INTO progress (kind, tmdb, season, episode, position, duration, title, "
-                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (play_kind, tmdb, season, episode, float(position), float(duration or 0), title or "", now))
-            conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = ? AND tmdb = ?",
-                         (now, title_kind, tmdb))
-            # A movie being watched is in progress unless it was watched before (a rewatch).
-            if title_kind == "movie":
-                conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ? "
-                             "AND (status IS NULL OR status = ?)",
-                             (STATUS_IN_PROGRESS, tmdb, STATUS_PLANNING))
-            else:
-                conn.execute("UPDATE media SET status = ? WHERE kind = 'tv' AND tmdb = ? "
-                             "AND (status IS NULL OR status = ?)",
-                             (STATUS_IN_PROGRESS, tmdb, STATUS_PLANNING))
-        self._write(run)
+        self._change("progress", _progress(kind, tmdb, season, episode, position, duration, title,
+                                           self._now(), meta))
         return "saved"
 
     def get_progress(self, kind, tmdb, season=None, episode=None):
@@ -355,18 +362,7 @@ class Store:
         return (row["position"], row["duration"]) if row else (0, 0)
 
     def clear_progress(self, kind, tmdb, season=None, episode=None):
-        play_kind = _play_kind(kind)
-        season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
-        tmdb = str(tmdb)
-
-        def run(conn):
-            conn.execute("DELETE FROM progress WHERE kind = ? AND tmdb = ? AND season = ? AND episode = ?",
-                         (play_kind, tmdb, season, episode))
-            if play_kind == "movie":
-                # Nothing left in progress and never finished: back to the watchlist state it came from.
-                conn.execute("UPDATE media SET status = NULL WHERE kind = 'movie' AND tmdb = ? AND status = ?",
-                             (tmdb, STATUS_IN_PROGRESS))
-        self._write(run)
+        return self._change("unprogress", dict(_item(kind, tmdb, season, episode), at=self._now()))
 
     def movie_progress(self):
         """{tmdb: (position, duration)} of the movies' resume points."""
@@ -484,60 +480,34 @@ class Store:
                 had = conn.execute("SELECT status FROM media WHERE kind = ? AND tmdb = ?",
                                    (kind, tmdb)).fetchone()
                 old = had[0] if had else None
-                self._ensure(conn, kind, tmdb, t.get("meta"), t.get("added_at") or now)
+                added = t.get("added_at") or now
+                self._ensure(conn, kind, tmdb, t.get("meta"), added)
                 status = t.get("status")
                 if status is not None and (old is None or status > old):
                     conn.execute("UPDATE media SET status = ? WHERE kind = ? AND tmdb = ?", (status, kind, tmdb))
                     if old is None:
                         counts["titles_added"] += 1
+                        # Peers list it; its status there follows from the plays they get with it.
+                        self._log(conn, "title", {"kind": kind, "tmdb": tmdb, "added_at": added})
                 conn.execute("UPDATE media SET added_at = MIN(added_at, ?), activity_at = MAX(activity_at, ?) "
-                             "WHERE kind = ? AND tmdb = ?",
-                             (t.get("added_at") or now, t.get("activity_at") or 0, kind, tmdb))
+                             "WHERE kind = ? AND tmdb = ?", (added, t.get("activity_at") or 0, kind, tmdb))
             for kind, tmdb, season, episode, when in plays:
-                play_kind, tmdb = _play_kind(kind), str(tmdb)
-                season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
-                key = (play_kind, tmdb, season, episode)
-                match = "kind = ? AND tmdb = ? AND season = ? AND episode = ?"
-                if when:
-                    same = conn.execute("SELECT 1 FROM plays WHERE {} AND ABS(watched_at - ?) < ?".format(match),
-                                        key + (when, SAME_PLAY)).fetchone()
-                else:
-                    same = conn.execute("SELECT 1 FROM plays WHERE " + match, key).fetchone()
-                if same:
-                    continue
-                when = when or now
-                self._ensure(conn, _title_kind(kind), tmdb, None, when)
-                conn.execute("INSERT INTO plays (kind, tmdb, season, episode, watched_at) VALUES (?, ?, ?, ?, ?)",
-                             key + (when,))
-                conn.execute("DELETE FROM progress WHERE {} AND updated_at <= ?".format(match), key + (when,))
-                conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = ? AND tmdb = ?",
-                             (when, _title_kind(kind), tmdb))
-                counts["plays_added"] += 1
-                if play_kind == "movie":
-                    conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ?",
-                                 (STATUS_COMPLETED, tmdb))
-                else:
-                    shows.add(tmdb)
+                if not when:
+                    # Without a time, any play of it already stored is this one.
+                    match, args = _where(_item(kind, tmdb, season, episode))
+                    if conn.execute("SELECT 1 FROM plays WHERE " + match, args).fetchone():
+                        continue
+                data = _play(kind, tmdb, season, episode, when or now)
+                if self._apply(conn, "play", data, shows):
+                    self._log(conn, "play", data)
+                    counts["plays_added"] += 1
             for kind, tmdb, season, episode, position, duration, updated in progress:
-                play_kind, tmdb = _play_kind(kind), str(tmdb)
-                season, episode = _key(season, episode) if play_kind == "episode" else (-1, -1)
-                key = (play_kind, tmdb, season, episode)
                 if position < MIN_POSITION or (duration and position >= duration * FINISHED):
                     continue
-                newer = conn.execute(
-                    "SELECT 1 FROM progress WHERE kind = ? AND tmdb = ? AND season = ? AND episode = ? "
-                    "AND updated_at >= ? UNION SELECT 1 FROM plays WHERE kind = ? AND tmdb = ? AND season = ? "
-                    "AND episode = ? AND watched_at >= ?", key + (updated,) + key + (updated,)).fetchone()
-                if newer:
-                    continue
-                self._ensure(conn, _title_kind(kind), tmdb, None, updated)
-                conn.execute("INSERT OR REPLACE INTO progress (kind, tmdb, season, episode, position, duration, "
-                             "title, updated_at) VALUES (?, ?, ?, ?, ?, ?, '', ?)",
-                             key + (float(position), float(duration or 0), updated))
-                conn.execute("UPDATE media SET status = ? WHERE kind = ? AND tmdb = ? "
-                             "AND (status IS NULL OR status = ?)",
-                             (STATUS_IN_PROGRESS, _title_kind(kind), tmdb, STATUS_PLANNING))
-                counts["progress_added"] += 1
+                data = _progress(kind, tmdb, season, episode, position, duration, "", updated)
+                if self._apply(conn, "progress", data, shows):
+                    self._log(conn, "progress", data)
+                    counts["progress_added"] += 1
             # Shows with new plays work out their next episode and status; the others keep theirs.
             for tmdb in shows:
                 self._recompute(conn, tmdb)
@@ -602,6 +572,233 @@ class Store:
                 [kind] + chunk)
             found.update((r["tmdb"], r) for r in rows)
         return found
+
+    # -- sync between devices --------------------------------------------------------
+
+    @property
+    def device_id(self):
+        return self._one("SELECT value FROM sync WHERE key = 'device'")["value"]
+
+    def last_change(self):
+        """The seq of the log's latest change (0 when it is empty)."""
+        return self._one("SELECT COALESCE(MAX(seq), 0) AS seq FROM changes")["seq"]
+
+    def changes(self, after=0, limit=500):
+        """The log's changes after seq ``after``, oldest first: [{seq, uid, op, data, at}]."""
+        rows = self._rows("SELECT seq, uid, op, data, at FROM changes WHERE seq > ? ORDER BY seq LIMIT ?",
+                          (int(after), int(limit)))
+        for row in rows:
+            row["data"] = json.loads(row["data"])
+        return rows
+
+    def apply_changes(self, changes):
+        """Apply a peer's changes ({uid, op, data, at}, as changes returns them) and keep them in
+        the log, all in one transaction; those already in it are skipped. One this version can't
+        apply (a newer Tally's op, or data it can't read) is kept, to pass on, but not applied.
+        Returns how many were new."""
+        def run(conn):
+            shows, new = set(), 0
+            for change in changes:
+                op, data = str(change["op"]), change["data"]
+                if not self._insert_change(conn, str(change["uid"]), op, data, float(change["at"])):
+                    continue
+                new += 1
+                self._last = max(self._last, float(change["at"]))
+                if op not in OPS:
+                    continue
+                conn.execute("SAVEPOINT change")
+                try:
+                    self._apply(conn, op, data, shows)
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    conn.execute("ROLLBACK TO change")
+                conn.execute("RELEASE change")
+            for tmdb in shows:
+                self._recompute(conn, tmdb)
+            return new
+        return self._write(run)
+
+    def _change(self, op, data):
+        """Make a change here: apply it and log it for peers when it changed anything."""
+        return self._changes([(op, data)])[0]
+
+    def _changes(self, ops):
+        def run(conn):
+            shows, results = set(), []
+            for op, data in ops:
+                result = self._apply(conn, op, data, shows)
+                if result:
+                    self._log(conn, op, data)
+                results.append(result)
+            for tmdb in shows:
+                self._recompute(conn, tmdb)
+            return results
+        return self._write(run)
+
+    def _log(self, conn, op, data):
+        """Log a change made here, with what the store knows of its title (a peer may not have it)."""
+        if op in ("title", "play", "progress"):
+            row = conn.execute("SELECT * FROM media WHERE kind = ? AND tmdb = ?",
+                               (_title_kind(data["kind"]), data["tmdb"])).fetchone()
+            if row:
+                data = dict(data, meta={k: row[k] for k in META_FIELDS if row[k] not in (None, "")})
+        at = next(data[k] for k in ("updated_at", "watched_at", "added_at", "at") if k in data)
+        self._insert_change(conn, uuid.uuid4().hex, op, data, at)
+
+    @staticmethod
+    def _insert_change(conn, uid, op, data, at):
+        """Add a change to the log; False when it is there already. Only the latest resume point
+        of a movie or episode is kept: an older one would change nothing where it arrives."""
+        item = ":".join(str(data.get(k)) for k in ("kind", "tmdb", "season", "episode")) if op == "progress" else None
+        cur = conn.execute("INSERT OR IGNORE INTO changes (uid, op, data, at, item) VALUES (?, ?, ?, ?, ?)",
+                           (uid, op, json.dumps(data), at, item))
+        if item and cur.rowcount:
+            conn.execute("DELETE FROM changes WHERE op = 'progress' AND item = ? AND seq != (SELECT seq FROM "
+                         "changes WHERE op = 'progress' AND item = ? ORDER BY at DESC, seq DESC LIMIT 1)",
+                         (item, item))
+        return cur.rowcount > 0
+
+    def _seed_changes(self, conn):
+        """Log what is stored already (migration 3 -> 4): listed titles, then plays and resume
+        points, each at the time it happened."""
+        for row in conn.execute("SELECT kind, tmdb, added_at FROM media WHERE status IS NOT NULL "
+                                "ORDER BY added_at").fetchall():
+            self._log(conn, "title", {"kind": row["kind"], "tmdb": row["tmdb"], "added_at": row["added_at"]})
+        for row in conn.execute("SELECT * FROM plays ORDER BY watched_at").fetchall():
+            self._log(conn, "play", dict(_item(row["kind"], row["tmdb"], row["season"], row["episode"]),
+                                         uid=row["uid"], watched_at=row["watched_at"]))
+        for row in conn.execute("SELECT * FROM progress ORDER BY updated_at").fetchall():
+            self._log(conn, "progress", _progress(row["kind"], row["tmdb"], row["season"], row["episode"],
+                                                  row["position"], row["duration"], row["title"], row["updated_at"]))
+
+    # Applying ops: each returns whether it changed anything (a count for removals), and adds
+    # to shows the shows whose next episode and status need working out again.
+
+    def _apply(self, conn, op, data, shows):
+        return getattr(self, "_apply_" + op)(conn, data, shows)
+
+    @staticmethod
+    def _remove(conn, scope, kind, tmdb, at, season=-1, episode=-1):
+        """Note a removal's time (the latest kept): scope list, plays, progress or forget."""
+        conn.execute("INSERT INTO removed (scope, kind, tmdb, season, episode, removed_at) VALUES (?, ?, ?, ?, ?, ?) "
+                     "ON CONFLICT (scope, kind, tmdb, season, episode) "
+                     "DO UPDATE SET removed_at = MAX(removed_at, excluded.removed_at)",
+                     (scope, kind, tmdb, season, episode, at))
+
+    @staticmethod
+    def _removed(conn, item, scope, when):
+        """Whether an op's movie or episode (scope plays or progress), or its title, was removed
+        at or after ``when``: what it would add is older than the removal."""
+        return conn.execute(
+            "SELECT 1 FROM removed WHERE removed_at >= ? AND ((scope = ? AND kind = ? AND tmdb = ? "
+            "AND season = ? AND episode = ?) OR (scope = 'forget' AND kind = ? AND tmdb = ?))",
+            (when, scope, item["kind"], item["tmdb"], item["season"], item["episode"],
+             _title_kind(item["kind"]), item["tmdb"])).fetchone() is not None
+
+    def _apply_title(self, conn, d, shows):
+        kind, tmdb, added = _title_kind(d["kind"]), str(d["tmdb"]), float(d["added_at"])
+        if conn.execute("SELECT 1 FROM removed WHERE scope IN ('list', 'forget') AND kind = ? AND tmdb = ? "
+                        "AND removed_at >= ?", (kind, tmdb, added)).fetchone():
+            return False
+        self._ensure(conn, kind, tmdb, d.get("meta"), added)
+        return conn.execute("UPDATE media SET status = ?, added_at = ? WHERE kind = ? AND tmdb = ? "
+                            "AND status IS NULL", (STATUS_PLANNING, added, kind, tmdb)).rowcount > 0
+
+    def _apply_unlist(self, conn, d, shows):
+        kind, tmdb, at = _title_kind(d["kind"]), str(d["tmdb"]), float(d["at"])
+        self._remove(conn, "list", kind, tmdb, at)
+        return conn.execute("UPDATE media SET status = NULL WHERE kind = ? AND tmdb = ? AND status = ? "
+                            "AND added_at <= ?", (kind, tmdb, STATUS_PLANNING, at)).rowcount > 0
+
+    def _apply_play(self, conn, d, shows):
+        item, uid, when = _item(d["kind"], d["tmdb"], d["season"], d["episode"]), str(d["uid"]), float(d["watched_at"])
+        match, args = _where(item)
+        # A play already here, removed since, or one within SAME_PLAY of it (the same watch,
+        # recorded on two devices before they synced) adds nothing.
+        if (conn.execute("SELECT 1 FROM plays WHERE uid = ?", (uid,)).fetchone()
+                or self._removed(conn, item, "plays", when)
+                or conn.execute("SELECT 1 FROM plays WHERE {} AND ABS(watched_at - ?) < ?".format(match),
+                                args + (when, SAME_PLAY)).fetchone()):
+            return False
+        kind, tmdb = _title_kind(item["kind"]), item["tmdb"]
+        self._ensure(conn, kind, tmdb, d.get("meta"), when)
+        conn.execute("INSERT INTO plays (uid, kind, tmdb, season, episode, watched_at) VALUES (?, ?, ?, ?, ?, ?)",
+                     (uid,) + args + (when,))
+        conn.execute("DELETE FROM progress WHERE {} AND updated_at <= ?".format(match), args + (when,))
+        conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = ? AND tmdb = ?",
+                     (when, kind, tmdb))
+        if kind == "movie":
+            conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ?", (STATUS_COMPLETED, tmdb))
+        else:
+            shows.add(tmdb)
+        return True
+
+    def _apply_unplay(self, conn, d, shows):
+        item, at = _item(d["kind"], d["tmdb"], d["season"], d["episode"]), float(d["at"])
+        match, args = _where(item)
+        self._remove(conn, "plays", item["kind"], item["tmdb"], at, item["season"], item["episode"])
+        removed = conn.execute("DELETE FROM plays WHERE {} AND watched_at <= ?".format(match), args + (at,)).rowcount
+        tmdb = item["tmdb"]
+        if item["kind"] == "episode":
+            shows.add(tmdb)
+        elif not conn.execute("SELECT 1 FROM plays WHERE kind = 'movie' AND tmdb = ?", (tmdb,)).fetchone():
+            left = conn.execute("SELECT 1 FROM progress WHERE kind = 'movie' AND tmdb = ?", (tmdb,)).fetchone()
+            conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ? AND status = ?",
+                         (STATUS_IN_PROGRESS if left else STATUS_PLANNING, tmdb, STATUS_COMPLETED))
+        return removed
+
+    def _apply_progress(self, conn, d, shows):
+        item, when = _item(d["kind"], d["tmdb"], d["season"], d["episode"]), float(d["updated_at"])
+        match, args = _where(item)
+        # Kept only when newer than the resume point here, any play of it and its removal.
+        if (self._removed(conn, item, "progress", when)
+                or conn.execute("SELECT 1 FROM progress WHERE {0} AND updated_at >= ? UNION ALL "
+                                "SELECT 1 FROM plays WHERE {0} AND watched_at >= ?".format(match),
+                                args + (when,) + args + (when,)).fetchone()):
+            return False
+        kind, tmdb = _title_kind(item["kind"]), item["tmdb"]
+        self._ensure(conn, kind, tmdb, d.get("meta"), when)
+        conn.execute("INSERT OR REPLACE INTO progress (kind, tmdb, season, episode, position, duration, title, "
+                     "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     args + (float(d["position"]), float(d.get("duration") or 0), d.get("title") or "", when))
+        conn.execute("UPDATE media SET activity_at = MAX(activity_at, ?) WHERE kind = ? AND tmdb = ?",
+                     (when, kind, tmdb))
+        # Being watched is in progress, unless it was watched before (a rewatch).
+        conn.execute("UPDATE media SET status = ? WHERE kind = ? AND tmdb = ? AND (status IS NULL OR status = ?)",
+                     (STATUS_IN_PROGRESS, kind, tmdb, STATUS_PLANNING))
+        return True
+
+    def _apply_unprogress(self, conn, d, shows):
+        item, at = _item(d["kind"], d["tmdb"], d["season"], d["episode"]), float(d["at"])
+        match, args = _where(item)
+        self._remove(conn, "progress", item["kind"], item["tmdb"], at, item["season"], item["episode"])
+        removed = conn.execute("DELETE FROM progress WHERE {} AND updated_at <= ?".format(match),
+                               args + (at,)).rowcount
+        if item["kind"] == "movie" and not conn.execute(
+                "SELECT 1 FROM progress WHERE kind = 'movie' AND tmdb = ?", (item["tmdb"],)).fetchone():
+            # Nothing left in progress and never finished: back to the watchlist state it came from.
+            conn.execute("UPDATE media SET status = NULL WHERE kind = 'movie' AND tmdb = ? AND status = ?",
+                         (item["tmdb"], STATUS_IN_PROGRESS))
+        return removed
+
+    def _apply_forget(self, conn, d, shows):
+        kind, tmdb, at = _title_kind(d["kind"]), str(d["tmdb"]), float(d["at"])
+        play_kind = _play_kind(kind)
+        self._remove(conn, "forget", kind, tmdb, at)
+        conn.execute("DELETE FROM plays WHERE kind = ? AND tmdb = ? AND watched_at <= ?", (play_kind, tmdb, at))
+        conn.execute("DELETE FROM progress WHERE kind = ? AND tmdb = ? AND updated_at <= ?", (play_kind, tmdb, at))
+        # What a peer watched after it was forgotten (before they synced) stays.
+        played = conn.execute("SELECT 1 FROM plays WHERE kind = ? AND tmdb = ?", (play_kind, tmdb)).fetchone()
+        started = conn.execute("SELECT 1 FROM progress WHERE kind = ? AND tmdb = ?", (play_kind, tmdb)).fetchone()
+        if not (played or started):
+            conn.execute("DELETE FROM media WHERE kind = ? AND tmdb = ? AND added_at <= ?", (kind, tmdb, at))
+            if kind == "tv":
+                conn.execute("DELETE FROM shows WHERE tmdb = ?", (tmdb,))
+        elif kind == "tv":
+            shows.add(tmdb)
+        else:
+            conn.execute("UPDATE media SET status = ? WHERE kind = 'movie' AND tmdb = ?",
+                         (STATUS_COMPLETED if played else STATUS_IN_PROGRESS, tmdb))
+        return True
 
     # -- TMDb Helper sync (script.module.tmdbhelper.sync.tally) ------------------------
 
