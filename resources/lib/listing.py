@@ -166,6 +166,8 @@ def build(entry, in_resume_list=False):
     li = xbmcgui.ListItem(label=label, offscreen=True)
     if entry.get("label2"):
         li.setLabel2(entry["label2"])
+    if entry.get("unaired"):
+        li.setProperty("unaired", "true")  # not out yet: a skin can show it as not playable
 
     # -- info tag ---------------------------------------------------------------
     tag = li.getVideoInfoTag()

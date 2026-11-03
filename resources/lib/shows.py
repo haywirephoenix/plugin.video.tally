@@ -125,6 +125,7 @@ def list_episodes(router):
             entry["resume_pos"], entry["resume_total"] = int(pos), int(total)
         if aired and not _aired(aired):
             entry["label2"] = "Airs {}".format(aired)
+            entry["unaired"] = True
         entries.append(entry)
     router._render_entries(entries, False, "episodes", False, {})
 
