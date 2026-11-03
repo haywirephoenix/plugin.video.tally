@@ -23,7 +23,7 @@ def _folders():
 def _read(path):
     handle = xbmcvfs.File(path)
     try:
-        return importers.export_text(bytes(handle.readBytes()))
+        return importers.export_text(bytes(handle.readBytes()), os.path.basename(path.replace("\\", "/")))
     finally:
         handle.close()
 

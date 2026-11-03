@@ -6,6 +6,7 @@
     "extensions": [".json", ".zip"],
     "detect_any": ["movie.ids.trakt", "show.ids.trakt"],
     "expand": ["seasons", "seasons.episodes"],
+    "skip": ["favorites"],
     "show_details": true,
     "fields": {
         "kind": [

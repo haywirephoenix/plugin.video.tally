@@ -198,6 +198,25 @@ class JsonFormatTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             importers.export_text(data.getvalue())
 
+    def test_trakt_skips_favorites(self):
+        """Trakt's own export: favorites look like the watchlist, so they're skipped by file name,
+        in a zip or picked on their own."""
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resources", "importers")
+        imp = importers.create(importers.definitions(folder)["trakt"])
+
+        def listed(kind, tmdb):
+            return [{"type": kind, kind: {"ids": {"trakt": 1, "tmdb": tmdb}, "title": "T"}, "rank": 1,
+                     "listed_at": "2026-11-03T14:48:39.000Z", "notes": None}]
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("lists-watchlist.json", json.dumps(listed("show", 312359)))
+            archive.writestr("lists-favorites.json", json.dumps(listed("movie", 967847)))
+        records = list(imp.records(importers.export_text(data.getvalue())))
+        self.assertEqual([(r["kind"], r["tmdb"], r["status"]) for r in records], [("tv", "312359", "planning")])
+        alone = json.dumps(listed("movie", 967847)).encode("utf-8")
+        self.assertEqual(list(imp.records(importers.export_text(alone, "lists-favorites.json"))), [])
+        self.assertEqual(len(list(imp.records(importers.export_text(alone, "lists-watchlist.json")))), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

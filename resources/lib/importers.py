@@ -263,10 +263,13 @@ class JsonImporter(Importer):
     are its keys, nested objects' joined with dots ("movie.ids.tmdb"); other arrays are their
     JSON text. The definition's "expand" names arrays (dotted, as columns) whose items each make
     a row of their own, with their parents' columns: a watched show's "seasons", and
-    "seasons.episodes" in them ("seasons.episodes.number")."""
+    "seasons.episodes" in them ("seasons.episodes.number"). Its "skip" names sections that aren't
+    read: an object key (a file's name, from a zip or a single file) containing one of its words,
+    lower-cased (Trakt's favorites, which look like its watchlist)."""
 
     def _rows(self, text):
         expand = set(self.definition.get("expand") or [])
+        skip = [word.lower() for word in self.definition.get("skip") or []]
 
         def flatten(value, name):
             if isinstance(value, dict):
@@ -291,7 +294,9 @@ class JsonImporter(Importer):
                         for row in flatten(item, ""):
                             yield row
             elif isinstance(value, dict):
-                for sub in value.values():
+                for key, sub in value.items():
+                    if any(word in key.lower() for word in skip):
+                        continue
                     for row in walk(sub):
                         yield row
         return walk(json.loads(text.lstrip(BOM)))
@@ -309,9 +314,9 @@ class JsonImporter(Importer):
 FORMATS = {"csv": CsvImporter, "json": JsonImporter}
 
 
-def export_text(data):
+def export_text(data, name=None):
     """An export's text from its bytes: a zip's JSON files as one JSON object ({file name: its
-    JSON}), anything else as UTF-8."""
+    JSON}), a JSON file's (with its name) as {name: its JSON} too, anything else as UTF-8."""
     if data[:4] == ZIP_MAGIC:
         combined = {}
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -324,7 +329,13 @@ def export_text(data):
         if not combined:
             raise ValueError("no JSON files in the zip")
         return json.dumps(combined)
-    return data.decode("utf-8-sig", errors="replace")
+    text = data.decode("utf-8-sig", errors="replace")
+    if name and name.lower().endswith(".json"):
+        try:
+            return json.dumps({name: json.loads(text)})
+        except ValueError:
+            pass
+    return text
 
 
 # -- merging into the store -------------------------------------------------------------
