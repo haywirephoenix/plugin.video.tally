@@ -104,8 +104,9 @@ MIGRATIONS = [
     ALTER TABLE shows ADD COLUMN next_air_date TEXT NOT NULL DEFAULT '';
     """,
     # 3 -> 4: sync. Each play gets a uid; the changes log (seq: this device's order, a peer's
-    # cursor), removals' times, and this device's id. The log is seeded with what is stored
-    # (_seed_changes), so a peer's first sync gets the whole history.
+    # cursor), removals' times, this device's id and its paired devices (peers: the token both
+    # send, where it was last reached, and how far its log was pulled). The log is seeded with
+    # what is stored (_seed_changes), so a peer's first sync gets the whole history.
     """
     ALTER TABLE plays ADD COLUMN uid TEXT;
     UPDATE plays SET uid = lower(hex(randomblob(16)));
@@ -133,6 +134,17 @@ MIGRATIONS = [
         value TEXT NOT NULL
     );
     INSERT INTO sync (key, value) VALUES ('device', lower(hex(randomblob(8))));
+    CREATE TABLE peers (
+        device TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        token TEXT NOT NULL,
+        address TEXT NOT NULL DEFAULT '',
+        port INTEGER NOT NULL DEFAULT 0,
+        cursor INTEGER NOT NULL DEFAULT 0,
+        paired_at REAL NOT NULL,
+        synced_at REAL NOT NULL DEFAULT 0,
+        error TEXT NOT NULL DEFAULT ''
+    );
     """,
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
@@ -590,6 +602,31 @@ class Store:
         for row in rows:
             row["data"] = json.loads(row["data"])
         return rows
+
+    def peers(self):
+        """The paired devices: [{device, name, token, address, port, cursor, paired_at, synced_at, error}]."""
+        return self._rows("SELECT * FROM peers ORDER BY name COLLATE NOCASE")
+
+    def peer(self, device):
+        return self._one("SELECT * FROM peers WHERE device = ?", (str(device),))
+
+    def save_peer(self, device, name, token, address, port):
+        """Pair with a device (or pair again: a new token, how far its log was pulled kept)."""
+        self._write(lambda c: c.execute(
+            "INSERT INTO peers (device, name, token, address, port, paired_at) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (device) DO UPDATE SET name = excluded.name, token = excluded.token, "
+            "address = excluded.address, port = excluded.port, paired_at = excluded.paired_at, error = ''",
+            (str(device), name or "", token, address or "", int(port or 0), time.time())))
+
+    def update_peer(self, device, **fields):
+        """Change a paired device's name, address, port, cursor, synced_at or error."""
+        fields = {k: v for k, v in fields.items() if k in ("name", "address", "port", "cursor", "synced_at", "error")}
+        if fields:
+            self._write(lambda c: c.execute("UPDATE peers SET {} WHERE device = ?".format(
+                ", ".join("{} = ?".format(k) for k in fields)), list(fields.values()) + [str(device)]))
+
+    def remove_peer(self, device):
+        return self._write(lambda c: c.execute("DELETE FROM peers WHERE device = ?", (str(device),))).rowcount > 0
 
     def apply_changes(self, changes):
         """Apply a peer's changes ({uid, op, data, at}, as changes returns them) and keep them in

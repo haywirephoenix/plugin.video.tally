@@ -20,6 +20,11 @@ PROFILE_DIR = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
 # Home window properties shared between the plugin and the service.
 HOME = 10000
 PROP_RELOAD = "tally.widget_reload"
+# Sync (player_service.SyncRunner): the plugin's request (pair: open a code, unpair_code: close
+# it, now: sync now), the code open, and the name of the device that paired with it.
+PROP_SYNC_REQUEST = "tally.sync.request"
+PROP_SYNC_CODE = "tally.sync.code"
+PROP_SYNC_PAIRED = "tally.sync.paired"
 
 # What is about to play, set just before playback by Tally's play route or by a skin
 # (tally.play.kind, tally.play.tmdb, ...); the service reads it when the video starts.
@@ -99,6 +104,11 @@ def store():
         with perf.span("store_open"):
             _store = Store(os.path.join(ensure_profile_dir(), "tally.db"))
     return _store
+
+
+def sync_name():
+    """This device's name to the others: the Sync setting's, else Kodi's device name."""
+    return setting("sync_name") or xbmc.getInfoLabel("System.FriendlyName") or "Kodi"
 
 
 def plugin_url(**params):

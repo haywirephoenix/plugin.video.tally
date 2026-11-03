@@ -15,7 +15,7 @@ import time
 import xbmc
 import xbmcgui
 
-from . import cache, common, tmdb, tracking
+from . import cache, common, sync, tmdb, tracking
 
 PENDING_MAX_AGE = 180  # seconds between the tally.play.* hand-off and the video starting
 MIN_POSITION = 60  # do not save accidental starts
@@ -24,6 +24,7 @@ PROP_REFRESH_SHOWS = "tally.refresh_shows"  # set by the plugin's Refresh widget
 SHOW_REFRESH_AGE = 24 * 3600  # a watched show's seasons are re-read from TMDb this often
 UPKEEP_EVERY = 3600
 VERSION_FILE = "version"  # in the profile: the version the service last ran as (updated)
+SYNC_CHECK_EVERY = 5  # seconds between looks at the Sync settings
 
 
 def completed_ratio():
@@ -337,6 +338,10 @@ class Upkeep:
     def start(self):
         self._thread.start()
 
+    def soon(self):
+        """Run the hourly upkeep at its next cycle (new shows' seasons, artwork)."""
+        self._last = 0.0
+
     def shutdown(self, timeout=3):
         self._stop.set()
         self._thread.join(timeout)
@@ -385,6 +390,68 @@ class Upkeep:
         return before != after
 
 
+class SyncRunner:
+    """This device's sync node (sync.Node), running while Sync is on (setting sync_enabled) with
+    its name and port; started again when they change. The plugin asks it for a pairing code,
+    and to sync now, through Home window properties (common.PROP_SYNC_*)."""
+
+    def __init__(self, upkeep):
+        self._upkeep = upkeep
+        self._node = None
+        self._config = None
+        self._checked = 0.0
+
+    def tick(self):
+        if time.time() - self._checked >= SYNC_CHECK_EVERY:
+            self._checked = time.time()
+            config = (common.sync_name(), common.setting_int("sync_port", sync.PORT))                 if common.setting_bool("sync_enabled") else None
+            if config != self._config:
+                self.shutdown()
+                self._config = config
+                if config:
+                    self._start(*config)
+        if self._node:
+            self._requests()
+
+    def _start(self, name, port):
+        self._node = sync.Node(common.store(), name, port, log=lambda m: common.log(m, xbmc.LOGINFO),
+                               on_changes=self._changed, on_paired=self._paired)
+        self._node.start()
+        common.log("Sync on as {} (port {})".format(name, self._node.port), xbmc.LOGINFO)
+
+    def _requests(self):
+        request = common.home_property(common.PROP_SYNC_REQUEST)
+        if not request:
+            return
+        common.clear_home_property(common.PROP_SYNC_REQUEST)
+        if request == "pair":
+            code = self._node.open_pairing()
+            common.home_property(common.PROP_SYNC_CODE, code)
+            common.clear_home_property(common.PROP_SYNC_PAIRED)
+        elif request == "unpair_code":
+            self._node.close_pairing()
+            common.clear_home_property(common.PROP_SYNC_CODE)
+        elif request == "now":
+            threading.Thread(target=self._node.pull_all, daemon=True).start()
+
+    def _paired(self, name):
+        common.clear_home_property(common.PROP_SYNC_CODE)
+        common.home_property(common.PROP_SYNC_PAIRED, name)
+
+    def _changed(self, new):
+        """A peer's changes arrived: lists show them, and shows Tally hadn't read yet are read
+        from TMDb now rather than within the hour."""
+        common.bump_widget_reload()
+        self._upkeep.soon()
+
+    def shutdown(self):
+        if self._node:
+            self._node.stop()
+            self._node = None
+            common.clear_home_property(common.PROP_SYNC_CODE)
+            common.log("Sync off", xbmc.LOGINFO)
+
+
 def updated():
     """Once after Tally is updated (VERSION_FILE holds the version it last ran as): its lists may
     carry more now (a show's watched progress, its banner) and need what its shows' refresh
@@ -416,6 +483,7 @@ def run():
     player = TallyPlayer()
     upkeep = Upkeep(player)
     upkeep.start()
+    syncer = SyncRunner(upkeep)
     common.log("Service started", xbmc.LOGINFO)
     last_purge = 0
     while not monitor.abortRequested():
@@ -425,12 +493,17 @@ def run():
             player.tick()
         except Exception as exc:  # noqa: BLE001 - never let the service die
             common.log("tick failed: {}".format(exc), xbmc.LOGWARNING)
+        try:
+            syncer.tick()
+        except Exception as exc:  # noqa: BLE001 - never let the service die
+            common.log("Sync failed: {}".format(exc), xbmc.LOGWARNING)
         if time.time() - last_purge > 6 * 3600:
             last_purge = time.time()
             try:
                 cache.purge_expired()
             except Exception:  # noqa: BLE001
                 pass
+    syncer.shutdown()
     upkeep.shutdown()
     player.shutdown()
     common.log("Service stopped", xbmc.LOGINFO)
