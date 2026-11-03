@@ -256,14 +256,15 @@ def details(kind, tmdb_id, fetch=True):
 
 
 def season_episodes(tmdb_id, season, fetch=True):
-    """Map episode number -> {title, plot, runtime (minutes), thumb, premiered} for one TV season, cached.
+    """Map episode number -> {id (TMDb's), title, plot, runtime (minutes), thumb, premiered} for one TV
+    season, cached.
 
     One request per season.
     """
     if not enabled() or not tmdb_id or season is None:
         return {}
     language = _language()
-    cache_key = "tmdb:tvseason2:{}:{}:{}".format(tmdb_id, season, language)
+    cache_key = "tmdb:tvseason3:{}:{}:{}".format(tmdb_id, season, language)
     hit = cache.get(cache_key)
     if hit is None and not fetch:
         return {}
@@ -277,6 +278,7 @@ def season_episodes(tmdb_id, season, fetch=True):
         # JSON keys are strings, so episode numbers are stored as strings.
         hit = {
             str(ep["episode_number"]): {
+                "id": ep.get("id"),
                 "title": ep.get("name") or "",
                 "plot": ep.get("overview") or "",
                 "runtime": int(ep.get("runtime") or 0),

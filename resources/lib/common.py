@@ -89,6 +89,26 @@ def notify(message, heading=None, time_ms=4000):
     xbmcgui.Dialog().notification(heading or ADDON_NAME, message, ADDON_ICON, time_ms)
 
 
+def open_url(url, prompt):
+    """Open url in the system's browser; where there's none (or it fails), show it to type elsewhere."""
+    try:
+        if xbmc.getCondVisibility("System.Platform.Android"):
+            xbmc.executebuiltin('StartAndroidActivity("","android.intent.action.VIEW","","{}")'.format(url))
+            return
+        if xbmc.getCondVisibility("System.Platform.Windows"):
+            os.startfile(url)
+            return
+        opener = ("open" if xbmc.getCondVisibility("System.Platform.OSX") else
+                  "xdg-open" if xbmc.getCondVisibility("System.Platform.Linux") else None)
+        if opener:
+            import subprocess
+            subprocess.Popen([opener, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+    except Exception as exc:  # noqa: BLE001 - fall back to showing the address
+        log("Couldn't open {}: {}".format(url, exc))
+    xbmcgui.Dialog().ok(ADDON_NAME, "{}\n[B]{}[/B]".format(prompt, url))
+
+
 def ensure_profile_dir():
     if not os.path.isdir(PROFILE_DIR):
         os.makedirs(PROFILE_DIR, exist_ok=True)

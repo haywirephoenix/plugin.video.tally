@@ -50,6 +50,14 @@ msgctxt "#30104"
 msgid "TMDb language code, for example en-GB or en-US"
 msgstr ""
 
+msgctxt "#30105"
+msgid "Get a free TMDb API key"
+msgstr ""
+
+msgctxt "#30106"
+msgid "Opens themoviedb.org's API settings in a browser (sign in or create a free account, then copy the API key into the box below). Without a browser, it shows the address to open on another device."
+msgstr ""
+
 msgctxt "#30200"
 msgid "Playback"
 msgstr ""
@@ -196,6 +204,14 @@ msgstr ""
 
 msgctxt "#30265"
 msgid "Try an export without changing anything: it is imported into a copy of Tally's data, and a report lists the titles, plays and resume points it would add, and the entries it couldn't match on TMDb."
+msgstr ""
+
+msgctxt "#30266"
+msgid "Export watch history"
+msgstr ""
+
+msgctxt "#30267"
+msgid "Save Tally's history in another tracker's import format, in a folder you choose. Trakt: one CSV of watched movies and episodes and the watchlist, by TMDb id (an episode by its own id, looked up on TMDb), for Trakt's import (trakt.tv, Settings, Your data)."
 msgstr ""
 
 msgctxt "#30400"

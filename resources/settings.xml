@@ -1,28 +1,6 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <settings version="1">
     <section id="plugin.video.tally">
-        <category id="tmdb" label="30100">
-            <group id="1">
-                <setting id="tmdb_key" type="string" label="30101" help="30103">
-                    <level>0</level>
-                    <default/>
-                    <constraints>
-                        <allowempty>true</allowempty>
-                    </constraints>
-                    <control type="edit" format="string">
-                        <heading>30101</heading>
-                        <hidden>true</hidden>
-                    </control>
-                </setting>
-                <setting id="tmdb_language" type="string" label="30102" help="30104">
-                    <level>0</level>
-                    <default>en-GB</default>
-                    <control type="edit" format="string">
-                        <heading>30102</heading>
-                    </control>
-                </setting>
-            </group>
-        </category>
         <category id="playback" label="30200">
             <group id="1">
                 <setting id="playback" type="integer" label="30201">
@@ -243,6 +221,16 @@
                         <close>true</close>
                     </control>
                 </setting>
+                <setting id="export_history" type="action" label="30266" help="30267">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=export_history)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="button" format="action">
+                        <close>true</close>
+                    </control>
+                </setting>
             </group>
         </category>
         <category id="lists" label="30400">
@@ -419,6 +407,36 @@
                     </dependencies>
                     <control type="edit" format="integer">
                         <heading>30711</heading>
+                    </control>
+                </setting>
+            </group>
+        </category>
+        <category id="tmdb" label="30100">
+            <group id="1">
+                <setting id="tmdb_get_key" type="action" label="30105" help="30106">
+                    <level>0</level>
+                    <data>RunPlugin(plugin://plugin.video.tally/?action=tmdb_get_key)</data>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="button" format="action"/>
+                </setting>
+                <setting id="tmdb_key" type="string" label="30101" help="30103">
+                    <level>0</level>
+                    <default/>
+                    <constraints>
+                        <allowempty>true</allowempty>
+                    </constraints>
+                    <control type="edit" format="string">
+                        <heading>30101</heading>
+                        <hidden>true</hidden>
+                    </control>
+                </setting>
+                <setting id="tmdb_language" type="string" label="30102" help="30104">
+                    <level>0</level>
+                    <default>en-GB</default>
+                    <control type="edit" format="string">
+                        <heading>30102</heading>
                     </control>
                 </setting>
             </group>

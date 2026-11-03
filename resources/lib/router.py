@@ -12,6 +12,8 @@ import xbmcplugin
 
 from . import categories, common, listing, model, perf, tmdb
 
+TMDB_KEY_URL = "https://www.themoviedb.org/settings/api?language=en-GB"
+
 
 class Router:
     def __init__(self, argv):
@@ -553,6 +555,13 @@ class Router:
     def import_history(self):
         from . import import_ui
         import_ui.run(self)
+
+    def export_history(self):
+        from . import export_ui
+        export_ui.run(self)
+
+    def tmdb_get_key(self):
+        common.open_url(TMDB_KEY_URL, "Get a free API key at")
 
     def sync_pair(self):
         from . import sync_ui
