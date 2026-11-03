@@ -1,0 +1,48 @@
+{
+    "id": "trakt",
+    "name": "Trakt",
+    "description": "Trakt data as its API gives it, saved as JSON by an export tool (one file, a zip of them, or one object of sections): watch history, watched movies and shows, watchlist, resume points.",
+    "format": "json",
+    "extensions": [".json", ".zip"],
+    "detect_any": ["movie.ids.trakt", "show.ids.trakt"],
+    "expand": ["seasons", "seasons.episodes"],
+    "show_details": true,
+    "fields": {
+        "kind": [
+            {
+                "column": "type",
+                "present": ["action", "listed_at", "progress"],
+                "map": {"movie": "movie", "show": "tv", "season": "tv", "episode": "episode"}
+            },
+            {"column": "seasons.episodes.number", "value": "episode"},
+            {"column": "movie.ids.trakt", "present": ["plays"], "value": "movie"}
+        ],
+        "tmdb": ["show.ids.tmdb", "movie.ids.tmdb"],
+        "imdb": ["show.ids.imdb", "movie.ids.imdb"],
+        "tvdb": "show.ids.tvdb",
+        "title": ["show.title", "movie.title"],
+        "year": [{"column": "show.year", "convert": "int"}, {"column": "movie.year", "convert": "int"}],
+        "season": [
+            {"column": "episode.season", "convert": "int"},
+            {"column": "season.number", "convert": "int"},
+            {"column": "seasons.number", "convert": "int"}
+        ],
+        "episode": [
+            {"column": "episode.number", "convert": "int"},
+            {"column": "seasons.episodes.number", "convert": "int"}
+        ],
+        "status": [
+            {"column": "action", "map": {"watch": "completed", "checkin": "completed", "scrobble": "completed"}},
+            {"column": "listed_at", "value": "planning"},
+            {"column": "plays", "value": "completed"}
+        ],
+        "progress": {"column": "progress", "convert": "float"},
+        "duration": [
+            {"column": "episode.runtime", "convert": "minutes"},
+            {"column": "movie.runtime", "convert": "minutes"}
+        ],
+        "watched_at": {"columns": ["watched_at", "seasons.episodes.last_watched_at", "last_watched_at"], "convert": "time"},
+        "added_at": {"column": "listed_at", "convert": "time"},
+        "updated_at": {"column": "paused_at", "convert": "time"}
+    }
+}

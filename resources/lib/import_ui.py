@@ -20,7 +20,7 @@ def _folders():
 def _read(path):
     handle = xbmcvfs.File(path)
     try:
-        return bytes(handle.readBytes()).decode("utf-8-sig", errors="replace")
+        return importers.export_text(bytes(handle.readBytes()))
     finally:
         handle.close()
 
@@ -33,7 +33,7 @@ def _download(url):
         data = response.read(MAX_DOWNLOAD + 1)
     if len(data) > MAX_DOWNLOAD:
         raise ValueError("bigger than {} MB".format(MAX_DOWNLOAD // (1024 * 1024)))
-    return data.decode("utf-8-sig", errors="replace")
+    return importers.export_text(data)
 
 
 def _choose_source(router, dialog, masks):

@@ -3,8 +3,10 @@
 Plain Python and no Kodi imports, so it runs (and is tested) outside Kodi. A definition in
 resources/importers/<id>.json (or the profile's importers folder) names the file format and how
 each of Tally's fields is read from a row; ``Importer`` turns rows into ``Record`` dicts and
-``apply`` merges them into the store. Formats other than CSV subclass ``Importer`` and register
-in FORMATS.
+``apply`` merges them into the store. Formats (FORMATS): "csv", a header row and a row per
+entry; "json" (JsonImporter), objects flattened into rows whose columns are their dotted keys.
+Others subclass ``Importer`` and register there. A zip of exports reads as one JSON object of
+its JSON files (export_text).
 
 A field spec is a column name, a dict, or a list of either (the first that gives a value wins):
     "title"                                       the column's text
@@ -13,13 +15,21 @@ A field spec is a column name, a dict, or a list of either (the first that gives
     {"column": "x", "convert": "json", "key": "tmdb_id"}   a key of a JSON object column
     {"column": "x", "map": {"a": "b"}}            looked up (lower-cased); unmapped gives nothing
     {"column": "x", "when": {"source": "tmdb"}}   only on rows where those columns match
+    {"column": "x", "present": ["a", "b"]}        only on rows where one of those has a value
+    {"column": "x", "value": "movie"}             this value wherever the column has one
 A repeated column name is read as "name#2", "name#3", ...
+
+A definition's "detect" names columns an export has all of to be recognised as its app's, and
+"detect_any" columns it has at least one of.
 
 Record fields: kind ("movie", "tv", "season" or "episode"; other rows are skipped), tmdb, imdb,
 tvdb, title, year, poster, season, episode, status (planning, in_progress, paused, completed,
-dropped), position, duration (seconds), watched_at, added_at, updated_at (epoch seconds).
-Episode and season rows are identified by their show's ids. The definition's "statuses" maps
-statuses Tally has no state for onto one it has (or null: the title keeps no status).
+dropped), position, duration (seconds), progress (percent watched: the position, when there is
+a duration and no position), watched_at, added_at, updated_at (epoch seconds).
+Episode and season rows are identified by their show's ids; their title, year and poster are
+the episode's own and left out, unless the definition's "show_details" says they are the show's
+(Trakt's). The definition's "statuses" maps statuses Tally has no state for onto one it has (or
+null: the title keeps no status).
 """
 
 import calendar
@@ -29,16 +39,19 @@ import json
 import os
 import re
 import time
+import zipfile
 
 from . import model
 
 FIELDS = ("kind", "tmdb", "imdb", "tvdb", "title", "year", "poster", "season", "episode", "status",
-          "position", "duration", "watched_at", "added_at", "updated_at")
+          "position", "duration", "progress", "watched_at", "added_at", "updated_at")
 KINDS = ("movie", "tv", "season", "episode")
 TALLY_STATUSES = {"planning": model.STATUS_PLANNING, "in_progress": model.STATUS_IN_PROGRESS,
                   "completed": model.STATUS_COMPLETED}
 _RANK = {model.STATUS_PLANNING: 0, model.STATUS_IN_PROGRESS: 1, model.STATUS_COMPLETED: 2}
 
+BOM = "\ufeff"
+ZIP_MAGIC = b"PK\x03\x04"
 _ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?"
                   r"\s*(Z|[+-]\d{2}:?\d{2})?$")
 
@@ -101,6 +114,8 @@ def read_field(spec, row):
     for column, wanted in (spec.get("when") or {}).items():
         if (row.get(column) or "").strip().lower() != str(wanted).lower():
             return None
+    if "present" in spec and not any((row.get(c) or "").strip() for c in spec["present"]):
+        return None
     columns = spec.get("columns") or [spec.get("column")]
     for column in columns:
         value = _read_one(spec, (row.get(column) or "").strip())
@@ -112,6 +127,8 @@ def read_field(spec, row):
 def _read_one(spec, raw):
     if raw == "":
         return None
+    if "value" in spec:
+        return spec["value"]
     try:
         value = CONVERT[spec.get("convert", "text")](raw)
     except (ValueError, TypeError, OverflowError):
@@ -168,9 +185,16 @@ class Importer:
         raise NotImplementedError
 
     def detects(self, text):
-        """True when the export has every column the definition's "detect" names."""
-        wanted = self.definition.get("detect") or []
-        return bool(wanted) and set(wanted) <= set(self.columns(text))
+        """True when the export has every column the definition's "detect" names, and one of
+        its "detect_any" ones."""
+        wanted, some = self.definition.get("detect") or [], self.definition.get("detect_any") or []
+        if not wanted and not some:
+            return False
+        try:
+            columns = set(self.columns(text))
+        except ValueError:  # not this format at all
+            return False
+        return set(wanted) <= columns and (not some or bool(set(some) & columns))
 
     def record(self, row):
         """A Record dict for a row, or None when it is not a movie, show, season or episode."""
@@ -189,6 +213,9 @@ class Importer:
                     rec[name] = int(rec[name])
                 except (ValueError, TypeError):
                     rec[name] = None
+        if rec.get("position") is None and rec.get("progress") and rec.get("duration"):
+            rec["position"] = rec["duration"] * float(rec["progress"]) / 100
+        rec["show_details"] = bool(self.definition.get("show_details"))
         return rec
 
     def records(self, text):
@@ -230,7 +257,74 @@ class CsvImporter(Importer):
                 yield dict(zip(names, values))
 
 
-FORMATS = {"csv": CsvImporter}
+class JsonImporter(Importer):
+    """A JSON export: an array of objects, or an object whose arrays of objects (at any depth:
+    a zip's files, an export tool's sections) are each read. An object is one row whose columns
+    are its keys, nested objects' joined with dots ("movie.ids.tmdb"); other arrays are their
+    JSON text. The definition's "expand" names arrays (dotted, as columns) whose items each make
+    a row of their own, with their parents' columns: a watched show's "seasons", and
+    "seasons.episodes" in them ("seasons.episodes.number")."""
+
+    def _rows(self, text):
+        expand = set(self.definition.get("expand") or [])
+
+        def flatten(value, name):
+            if isinstance(value, dict):
+                rows = [{}]
+                for key, sub in value.items():
+                    subrows = flatten(sub, "{}.{}".format(name, key) if name else key)
+                    rows = [dict(a, **b) for a in rows for b in subrows]
+                return rows
+            if isinstance(value, list) and name in expand:
+                rows = [row for item in value for row in flatten(item, name)]
+                return rows or [{}]
+            if isinstance(value, (list, dict)):
+                return [{name: json.dumps(value)}]
+            if isinstance(value, bool):
+                return [{name: "true" if value else "false"}]
+            return [{name: "" if value is None else str(value)}]
+
+        def walk(value):
+            if isinstance(value, list):
+                if value and all(isinstance(item, dict) for item in value):
+                    for item in value:
+                        for row in flatten(item, ""):
+                            yield row
+            elif isinstance(value, dict):
+                for sub in value.values():
+                    for row in walk(sub):
+                        yield row
+        return walk(json.loads(text.lstrip(BOM)))
+
+    def columns(self, text):
+        found = set()
+        for row in self._rows(text):
+            found.update(row)
+        return sorted(found)
+
+    def rows(self, text):
+        return self._rows(text)
+
+
+FORMATS = {"csv": CsvImporter, "json": JsonImporter}
+
+
+def export_text(data):
+    """An export's text from its bytes: a zip's JSON files as one JSON object ({file name: its
+    JSON}), anything else as UTF-8."""
+    if data[:4] == ZIP_MAGIC:
+        combined = {}
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            for name in archive.namelist():
+                if name.lower().endswith(".json"):
+                    try:
+                        combined[name] = json.loads(archive.read(name).decode("utf-8-sig"))
+                    except ValueError:
+                        continue
+        if not combined:
+            raise ValueError("no JSON files in the zip")
+        return json.dumps(combined)
+    return data.decode("utf-8-sig", errors="replace")
 
 
 # -- merging into the store -------------------------------------------------------------
@@ -278,7 +372,7 @@ def apply(store, records, resolve=None, structure=None, now=None):
             continue
         status = TALLY_STATUSES.get(rec.get("status"))
         meta = {k: rec.get(k) for k in ("imdb", "tvdb", "title", "year", "poster")}
-        if rec["kind"] in ("season", "episode"):
+        if rec["kind"] in ("season", "episode") and not rec.get("show_details"):
             meta = {}  # these rows' titles and art are the episode's or season's, not the show's
         title = titles.setdefault((title_kind, tmdb), {
             "kind": title_kind, "tmdb": tmdb, "meta": {}, "status": None,
